@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.callmind.app.ui.components.CallTypeIcon
 import com.callmind.app.ui.components.callTypeColor
+import com.callmind.app.ui.theme.CallMissed
 import com.callmind.app.ui.theme.DarkDivider
 import com.callmind.app.ui.theme.GreenPrimary
 import com.callmind.app.ui.theme.TextSecondary
@@ -208,7 +210,19 @@ private fun CallListItem(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (call.isProcessing) {
+                if (call.processingError != null) {
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = CallMissed
+                    )
+                    Text(
+                        text = "Failed",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CallMissed
+                    )
+                } else if (call.isProcessing) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(10.dp),
                         strokeWidth = 1.5.dp,
@@ -234,7 +248,7 @@ private fun CallListItem(
                 }
                 if (call.durationSeconds != null) {
                     Text(
-                        text = "${if (call.isProcessing || call.summary != null) " · " else ""}${formatDuration(call.durationSeconds)}",
+                        text = "${if (call.isProcessing || call.summary != null || call.processingError != null) " · " else ""}${formatDuration(call.durationSeconds)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

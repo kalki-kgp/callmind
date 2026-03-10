@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.callmind.app.data.repository.CallRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -33,29 +33,31 @@ class ContactViewModel @Inject constructor(
 
     private val contactName: String = savedStateHandle["contactName"] ?: ""
 
-    val uiState = callRepository.getCallsByContact(contactName)
-        .map { calls ->
-            val allTopics = mutableSetOf<String>()
-            val callItems = calls.map { call ->
-                val analysis = callRepository.getAnalysis(call.id)
-                analysis?.topicsJson?.let { json ->
-                    try {
-                        allTopics.addAll(Json.decodeFromString<List<String>>(json))
-                    } catch (_: Exception) {}
-                }
-                ContactCallItem(
-                    callId = call.id,
-                    callType = call.callType,
-                    timestamp = call.timestamp,
-                    summary = analysis?.summary
-                )
+    val uiState = combine(
+        callRepository.getCallsByContact(contactName),
+        callRepository.getAllAnalyses()
+    ) { calls, analyses ->
+        val analysisMap = analyses.associateBy { it.callId }
+        val allTopics = mutableSetOf<String>()
+        val callItems = calls.map { call ->
+            val analysis = analysisMap[call.id]
+            analysis?.topicsJson?.let { json ->
+                try {
+                    allTopics.addAll(Json.decodeFromString<List<String>>(json))
+                } catch (_: Exception) {}
             }
-            ContactUiState(
-                contactName = contactName,
-                totalCalls = calls.size,
-                topics = allTopics.toList(),
-                calls = callItems
+            ContactCallItem(
+                callId = call.id,
+                callType = call.callType,
+                timestamp = call.timestamp,
+                summary = analysis?.summary
             )
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ContactUiState(contactName = contactName))
+        ContactUiState(
+            contactName = contactName,
+            totalCalls = calls.size,
+            topics = allTopics.toList(),
+            calls = callItems
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ContactUiState(contactName = contactName))
 }

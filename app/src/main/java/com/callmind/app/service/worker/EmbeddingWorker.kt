@@ -40,7 +40,9 @@ class EmbeddingWorker @AssistedInject constructor(
         if (transcript.fullText.isBlank()) return Result.failure()
 
         val call = callRepository.getCallById(callId)
-        setForeground(createForegroundInfo("Indexing: ${call?.contactName ?: call?.phoneNumber ?: "call"}"))
+        try {
+            setForeground(createForegroundInfo("Indexing: ${call?.contactName ?: call?.phoneNumber ?: "call"}"))
+        } catch (_: Exception) { }
 
         return try {
             // Chunk the transcript
@@ -63,7 +65,12 @@ class EmbeddingWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+            if (runAttemptCount < 3) {
+                Result.retry()
+            } else {
+                callRepository.setProcessingError(callId, e.message?.take(200) ?: "Embedding failed")
+                Result.failure()
+            }
         }
     }
 

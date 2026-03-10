@@ -25,7 +25,8 @@ object AppModule {
             context,
             CallMindDatabase::class.java,
             "callmind.db"
-        ).fallbackToDestructiveMigration(false)
+        ).addMigrations(CallMindDatabase.MIGRATION_2_3)
+            .fallbackToDestructiveMigration(false)
             .build()
     }
 

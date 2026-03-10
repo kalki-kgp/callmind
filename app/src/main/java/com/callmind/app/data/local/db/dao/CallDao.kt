@@ -46,4 +46,10 @@ interface CallDao {
 
     @Query("SELECT COUNT(*) FROM calls WHERE recordingFilePath = :path")
     suspend fun countByRecordingPath(path: String): Int
+
+    @Query("UPDATE calls SET processingError = :error WHERE id = :callId")
+    suspend fun setProcessingError(callId: Long, error: String?)
+
+    @Query("UPDATE calls SET processingError = NULL WHERE id = :callId")
+    suspend fun clearProcessingError(callId: Long)
 }

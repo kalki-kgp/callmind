@@ -35,4 +35,7 @@ interface AnalysisDao {
 
     @Query("UPDATE action_items SET isCompleted = :completed WHERE id = :id")
     suspend fun updateActionItemCompletion(id: Long, completed: Boolean)
+
+    @Query("SELECT * FROM call_analysis")
+    fun getAllAnalyses(): Flow<List<CallAnalysisEntity>>
 }

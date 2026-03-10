@@ -33,6 +33,7 @@ data class CallDetailUiState(
     val actionItems: List<ActionItemUi> = emptyList(),
     val keyPoints: List<String> = emptyList(),
     val transcript: String? = null,
+    val processingError: String? = null,
     val isLoading: Boolean = true
 )
 
@@ -74,6 +75,7 @@ class CallDetailViewModel @Inject constructor(
                 topics = topics,
                 keyPoints = keyPoints,
                 transcript = transcript?.fullText,
+                processingError = call.processingError,
                 isLoading = false
             )
 

@@ -45,7 +45,9 @@ class AnalysisWorker @AssistedInject constructor(
 
         if (transcript.fullText.isBlank()) return Result.failure()
 
-        setForeground(createForegroundInfo("Analyzing: ${call.contactName ?: call.phoneNumber}"))
+        try {
+            setForeground(createForegroundInfo("Analyzing: ${call.contactName ?: call.phoneNumber}"))
+        } catch (_: Exception) { }
 
         return try {
             val apiKey = userPreferences.geminiApiKey.first() ?: return Result.failure()
@@ -90,7 +92,13 @@ class AnalysisWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+            if (runAttemptCount < 3) {
+                Result.retry()
+            } else {
+                val errorMsg = e.message?.take(200) ?: "Analysis failed"
+                callRepository.setProcessingError(callId, errorMsg)
+                Result.failure()
+            }
         }
     }
 

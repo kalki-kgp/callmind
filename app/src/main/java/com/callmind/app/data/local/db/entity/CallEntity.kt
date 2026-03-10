@@ -14,5 +14,6 @@ data class CallEntity(
     val recordingFilePath: String? = null,
     val isTranscribed: Boolean = false,
     val isAnalyzed: Boolean = false,
+    val processingError: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

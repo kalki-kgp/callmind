@@ -2,6 +2,8 @@ package com.callmind.app.data.local.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.callmind.app.data.local.db.dao.AnalysisDao
 import com.callmind.app.data.local.db.dao.CallDao
 import com.callmind.app.data.local.db.dao.EmbeddingDao
@@ -20,7 +22,7 @@ import com.callmind.app.data.local.db.entity.TranscriptEntity
         ActionItemEntity::class,
         EmbeddingEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class CallMindDatabase : RoomDatabase() {
@@ -28,4 +30,12 @@ abstract class CallMindDatabase : RoomDatabase() {
     abstract fun transcriptDao(): TranscriptDao
     abstract fun analysisDao(): AnalysisDao
     abstract fun embeddingDao(): EmbeddingDao
+
+    companion object {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE calls ADD COLUMN processingError TEXT DEFAULT NULL")
+            }
+        }
+    }
 }

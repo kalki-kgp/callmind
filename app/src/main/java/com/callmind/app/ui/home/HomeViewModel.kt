@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.callmind.app.data.local.db.entity.CallEntity
@@ -14,12 +15,14 @@ import com.callmind.app.service.RecordingMonitorService
 import com.callmind.app.util.RecordingFileParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -31,7 +34,8 @@ data class CallUiItem(
     val timestamp: Long,
     val durationSeconds: Int?,
     val summary: String?,
-    val isProcessing: Boolean = false
+    val isProcessing: Boolean = false,
+    val processingError: String? = null
 )
 
 data class HomeUiState(
@@ -53,11 +57,13 @@ class HomeViewModel @Inject constructor(
 
     val uiState = combine(
         callRepository.getAllCalls(),
+        callRepository.getAllAnalyses(),
         _isScanning
-    ) { calls, scanning ->
+    ) { calls, analyses, scanning ->
+        val analysisMap = analyses.associateBy { it.callId }
         HomeUiState(
             calls = calls.map { call ->
-                val analysis = callRepository.getAnalysis(call.id)
+                val analysis = analysisMap[call.id]
                 CallUiItem(
                     id = call.id,
                     phoneNumber = call.phoneNumber,
@@ -66,7 +72,10 @@ class HomeViewModel @Inject constructor(
                     timestamp = call.timestamp,
                     durationSeconds = call.durationSeconds,
                     summary = analysis?.summary,
-                    isProcessing = !call.isAnalyzed && call.recordingFilePath != null
+                    isProcessing = !call.isAnalyzed
+                            && call.recordingFilePath != null
+                            && call.processingError == null,
+                    processingError = call.processingError
                 )
             },
             isLoading = false,
@@ -79,55 +88,71 @@ class HomeViewModel @Inject constructor(
             _isScanning.value = true
             try {
                 val dir = userPreferences.recordingDirectory.first()
-                recordingFileParser.checkForNewRecordings(dir)
+                withContext(Dispatchers.IO) {
+                    recordingFileParser.checkForNewRecordings(dir)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error scanning for recordings", e)
             } finally {
                 _isScanning.value = false
             }
         }
     }
 
-    /**
-     * Import a manually selected audio file and start processing.
-     */
     fun importRecording(uri: Uri) {
         viewModelScope.launch {
-            // Copy the file to app's internal storage
-            val fileName = getFileName(uri) ?: "imported_${System.currentTimeMillis()}.wav"
-            val importDir = File(context.filesDir, "imports")
-            importDir.mkdirs()
-            val destFile = File(importDir, fileName)
+            try {
+                withContext(Dispatchers.IO) {
+                    val fileName = getFileName(uri) ?: "imported_${System.currentTimeMillis()}.wav"
+                    val importDir = File(context.filesDir, "imports")
+                    importDir.mkdirs()
+                    val destFile = File(importDir, fileName)
 
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                destFile.outputStream().use { output ->
-                    input.copyTo(output)
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        destFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: return@withContext
+
+                    val call = CallEntity(
+                        phoneNumber = "Imported",
+                        contactName = fileName.substringBeforeLast("."),
+                        callType = "IMPORTED",
+                        timestamp = System.currentTimeMillis(),
+                        recordingFilePath = destFile.absolutePath
+                    )
+                    val callId = callRepository.insertCall(call)
+                    pipelineOrchestrator.processCall(callId)
                 }
-            } ?: return@launch
-
-            // Create a call entry for the imported file
-            val call = CallEntity(
-                phoneNumber = "Imported",
-                contactName = fileName.substringBeforeLast("."),
-                callType = "IMPORTED",
-                timestamp = System.currentTimeMillis(),
-                recordingFilePath = destFile.absolutePath
-            )
-            val callId = callRepository.insertCall(call)
-            pipelineOrchestrator.processCall(callId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error importing recording", e)
+            }
         }
     }
 
     fun startMonitorService() {
-        val intent = Intent(context, RecordingMonitorService::class.java)
-        context.startForegroundService(intent)
+        try {
+            val intent = Intent(context, RecordingMonitorService::class.java)
+            context.startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting monitor service", e)
+        }
     }
 
     private fun getFileName(uri: Uri): String? {
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex >= 0) return cursor.getString(nameIndex)
+        return try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) cursor.getString(nameIndex) else null
+                } else null
             }
+        } catch (_: Exception) {
+            null
         }
-        return null
+    }
+
+    companion object {
+        private const val TAG = "HomeViewModel"
     }
 }

@@ -3,7 +3,7 @@ package com.callmind.app.util
 import android.content.Context
 import android.provider.CallLog
 import android.provider.MediaStore
-import com.callmind.app.data.local.db.dao.CallDao
+import android.util.Log
 import com.callmind.app.data.local.db.entity.CallEntity
 import com.callmind.app.data.repository.CallRepository
 import com.callmind.app.service.PipelineOrchestrator
@@ -35,14 +35,16 @@ class RecordingFileParser @Inject constructor(
         val allFiles = queryRecordings(recordingDir)
 
         for (file in allFiles) {
-            // Skip if this recording path is already in the database
-            if (callRepository.isRecordingProcessed(file.path)) continue
+            try {
+                if (callRepository.isRecordingProcessed(file.path)) continue
 
-            val callEntity = matchToCallLog(file) ?: createCallFromFilename(file)
-            val callId = callRepository.insertCall(callEntity)
+                val callEntity = matchToCallLog(file) ?: createCallFromFilename(file)
+                val callId = callRepository.insertCall(callEntity)
 
-            // Trigger the transcription → analysis pipeline
-            pipelineOrchestrator.processCall(callId)
+                pipelineOrchestrator.processCall(callId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing recording: ${file.name}", e)
+            }
         }
     }
 
@@ -194,4 +196,8 @@ class RecordingFileParser @Inject constructor(
         val dateAdded: Long,
         val durationMs: Long
     )
+
+    companion object {
+        private const val TAG = "RecordingFileParser"
+    }
 }

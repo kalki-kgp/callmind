@@ -39,10 +39,15 @@ class CallRepository @Inject constructor(
     suspend fun getAnalysis(callId: Long): CallAnalysisEntity? = analysisDao.getAnalysisForCall(callId)
     fun observeAnalysis(callId: Long): Flow<CallAnalysisEntity?> = analysisDao.observeAnalysisForCall(callId)
     suspend fun insertAnalysis(analysis: CallAnalysisEntity): Long = analysisDao.insertAnalysis(analysis)
+    fun getAllAnalyses(): Flow<List<CallAnalysisEntity>> = analysisDao.getAllAnalyses()
 
     // Action Items
     fun getActionItems(callId: Long): Flow<List<ActionItemEntity>> = analysisDao.getActionItemsForCall(callId)
     fun getPendingActionItems(): Flow<List<ActionItemEntity>> = analysisDao.getPendingActionItems()
     suspend fun insertActionItems(items: List<ActionItemEntity>) = analysisDao.insertActionItems(items)
     suspend fun toggleActionItem(id: Long, completed: Boolean) = analysisDao.updateActionItemCompletion(id, completed)
+
+    // Processing errors
+    suspend fun setProcessingError(callId: Long, error: String) = callDao.setProcessingError(callId, error)
+    suspend fun clearProcessingError(callId: Long) = callDao.clearProcessingError(callId)
 }

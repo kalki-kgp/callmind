@@ -29,10 +29,14 @@ class TranscriptionWorker @AssistedInject constructor(
         val call = callRepository.getCallById(callId) ?: return Result.failure()
         val recordingPath = call.recordingFilePath ?: return Result.failure()
 
-        setForeground(createForegroundInfo("Transcribing: ${call.contactName ?: call.phoneNumber}"))
+        try {
+            setForeground(createForegroundInfo("Transcribing: ${call.contactName ?: call.phoneNumber}"))
+        } catch (_: Exception) {
+            // Foreground info can fail if notification permission is denied
+        }
 
         return try {
-            // Cloud STT via Gemini multimodal (until whisper.cpp is integrated)
+            callRepository.clearProcessingError(callId)
             val result = geminiTranscriptionService.transcribeAudio(recordingPath)
 
             val transcript = TranscriptEntity(
@@ -42,11 +46,17 @@ class TranscriptionWorker @AssistedInject constructor(
                 modelUsed = result.modelUsed
             )
             callRepository.insertTranscript(transcript)
-            callRepository.updateCall(call.copy(isTranscribed = true))
+            callRepository.updateCall(call.copy(isTranscribed = true, processingError = null))
 
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+            if (runAttemptCount < 3) {
+                Result.retry()
+            } else {
+                val errorMsg = e.message?.take(200) ?: "Transcription failed"
+                callRepository.setProcessingError(callId, errorMsg)
+                Result.failure()
+            }
         }
     }
 
