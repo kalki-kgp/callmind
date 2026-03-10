@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
@@ -135,7 +136,7 @@ fun CallDetailScreen(
                     Text("Share")
                 }
                 FilledTonalButton(
-                    onClick = { /* Re-analyze not exposed in ViewModel yet */ },
+                    onClick = { viewModel.processCall() },
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = DarkSurfaceVariant,
                         contentColor = MaterialTheme.colorScheme.onBackground
@@ -143,9 +144,13 @@ fun CallDetailScreen(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        if (uiState.summary != null) Icons.Default.Refresh else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Reprocess")
+                    Text(if (uiState.summary != null) "Reprocess" else "Process")
                 }
             }
 

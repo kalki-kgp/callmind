@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Intent
 import com.callmind.app.data.repository.CallRepository
+import com.callmind.app.service.PipelineOrchestrator
 import com.callmind.app.util.ExportHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,14 +35,17 @@ data class CallDetailUiState(
     val keyPoints: List<String> = emptyList(),
     val transcript: String? = null,
     val processingError: String? = null,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val isProcessing: Boolean = false,
+    val hasRecording: Boolean = false
 )
 
 @HiltViewModel
 class CallDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val callRepository: CallRepository,
-    private val exportHelper: ExportHelper
+    private val exportHelper: ExportHelper,
+    private val pipelineOrchestrator: PipelineOrchestrator
 ) : ViewModel() {
 
     private val callId: Long = savedStateHandle["callId"] ?: -1
@@ -76,7 +80,8 @@ class CallDetailViewModel @Inject constructor(
                 keyPoints = keyPoints,
                 transcript = transcript?.fullText,
                 processingError = call.processingError,
-                isLoading = false
+                isLoading = false,
+                hasRecording = call.recordingFilePath != null
             )
 
             // Observe action items reactively
@@ -91,6 +96,14 @@ class CallDetailViewModel @Inject constructor(
                     })
                 }
             }
+        }
+    }
+
+    fun processCall() {
+        _uiState.update { it.copy(isProcessing = true, processingError = null) }
+        viewModelScope.launch {
+            callRepository.clearProcessingError(callId)
+            pipelineOrchestrator.processCall(callId)
         }
     }
 

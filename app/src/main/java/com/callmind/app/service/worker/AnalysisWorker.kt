@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import com.callmind.app.R
 import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.remote.GeminiApiService
+import com.callmind.app.data.remote.OpenAiCompatibleService
 import com.callmind.app.data.remote.model.AnalysisResult
 import com.callmind.app.data.remote.model.Content
 import com.callmind.app.data.remote.model.GeminiRequest
@@ -31,6 +32,7 @@ class AnalysisWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val callRepository: CallRepository,
     private val geminiApiService: GeminiApiService,
+    private val openAiCompatibleService: OpenAiCompatibleService,
     private val userPreferences: UserPreferences
 ) : CoroutineWorker(context, params) {
 
@@ -50,15 +52,26 @@ class AnalysisWorker @AssistedInject constructor(
         } catch (_: Exception) { }
 
         return try {
-            val apiKey = userPreferences.geminiApiKey.first() ?: return Result.failure()
-
             val prompt = buildAnalysisPrompt(transcript.fullText, call.contactName)
-            val request = GeminiRequest(
-                contents = listOf(Content(parts = listOf(Part(text = prompt))))
-            )
+            val llmProvider = userPreferences.llmProvider.first()
 
-            val response = geminiApiService.generateContent(apiKey, request)
-            val analysisText = response.extractText() ?: return Result.retry()
+            val (analysisText, modelUsed) = when (llmProvider) {
+                "openai_compatible" -> {
+                    val text = openAiCompatibleService.generateContent(prompt)
+                    val model = userPreferences.openAiModel.first()
+                    text to model
+                }
+                else -> {
+                    // Default to Gemini
+                    val apiKey = userPreferences.geminiApiKey.first() ?: return Result.failure()
+                    val request = GeminiRequest(
+                        contents = listOf(Content(parts = listOf(Part(text = prompt))))
+                    )
+                    val response = geminiApiService.generateContent(apiKey, request)
+                    val text = response.extractText() ?: return Result.retry()
+                    text to "gemini-2.0-flash"
+                }
+            }
 
             // Parse structured response
             val parsed = AnalysisResult.parse(analysisText)
@@ -70,7 +83,7 @@ class AnalysisWorker @AssistedInject constructor(
                 topicsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.topics),
                 actionItemsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.actionItems),
                 keyPointsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.keyPoints),
-                modelUsed = "gemini-2.0-flash"
+                modelUsed = modelUsed
             )
             callRepository.insertAnalysis(analysis)
 

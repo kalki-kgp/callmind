@@ -85,6 +85,10 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.retrofit.kotlinx.serialization)
 
+    // Vosk (local STT)
+    implementation(libs.vosk.android) { artifact { type = "aar" } }
+    implementation(libs.jna) { artifact { type = "aar" } }
+
     // Kotlin
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)

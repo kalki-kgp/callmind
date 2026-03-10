@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
@@ -161,7 +162,10 @@ fun HomeCallsContent(
                     CallListItem(
                         call = call,
                         onClick = { onCallClick(call.id) },
-                        onContactClick = { call.contactName?.let(onContactClick) }
+                        onContactClick = { call.contactName?.let(onContactClick) },
+                        onProcessClick = if (call.isUnprocessed || call.processingError != null) {
+                            { viewModel.processCall(call.id) }
+                        } else null
                     )
                     HorizontalDivider(
                         color = DarkDivider,
@@ -177,7 +181,8 @@ fun HomeCallsContent(
 private fun CallListItem(
     call: CallUiItem,
     onClick: () -> Unit,
-    onContactClick: () -> Unit
+    onContactClick: () -> Unit,
+    onProcessClick: (() -> Unit)? = null
 ) {
     val timeText = formatCallTime(call.timestamp)
     val nameColor = callTypeColor(call.callType)
@@ -245,6 +250,12 @@ private fun CallListItem(
                         style = MaterialTheme.typography.bodySmall,
                         color = GreenPrimary
                     )
+                } else if (call.isUnprocessed) {
+                    Text(
+                        text = "Not processed",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
                 }
                 if (call.durationSeconds != null) {
                     Text(
@@ -256,7 +267,7 @@ private fun CallListItem(
             }
         }
 
-        // Right side: time + info icon
+        // Right side: time + process/info icon
         Column(horizontalAlignment = Alignment.End) {
             Text(
                 text = timeText,
@@ -265,12 +276,26 @@ private fun CallListItem(
             )
         }
         Spacer(modifier = Modifier.width(4.dp))
-        Icon(
-            Icons.Default.Info,
-            contentDescription = "Details",
-            tint = TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
+        if ((call.isUnprocessed || call.processingError != null) && onProcessClick != null) {
+            IconButton(
+                onClick = onProcessClick,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Process",
+                    tint = GreenPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        } else {
+            Icon(
+                Icons.Default.Info,
+                contentDescription = "Details",
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 

@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -35,6 +36,7 @@ data class CallUiItem(
     val durationSeconds: Int?,
     val summary: String?,
     val isProcessing: Boolean = false,
+    val isUnprocessed: Boolean = false,
     val processingError: String? = null
 )
 
@@ -54,16 +56,24 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _isScanning = MutableStateFlow(false)
+    private val _processingIds = MutableStateFlow<Set<Long>>(emptySet())
 
     val uiState = combine(
         callRepository.getAllCalls(),
         callRepository.getAllAnalyses(),
-        _isScanning
-    ) { calls, analyses, scanning ->
+        _isScanning,
+        _processingIds
+    ) { calls, analyses, scanning, processingIds ->
         val analysisMap = analyses.associateBy { it.callId }
         HomeUiState(
             calls = calls.map { call ->
                 val analysis = analysisMap[call.id]
+                val hasRecording = call.recordingFilePath != null
+                val hasError = call.processingError != null
+                val isAnalyzed = call.isAnalyzed
+                val isBeingProcessed = call.id in processingIds
+                        || (call.isTranscribed && !isAnalyzed && !hasError)
+
                 CallUiItem(
                     id = call.id,
                     phoneNumber = call.phoneNumber,
@@ -72,9 +82,8 @@ class HomeViewModel @Inject constructor(
                     timestamp = call.timestamp,
                     durationSeconds = call.durationSeconds,
                     summary = analysis?.summary,
-                    isProcessing = !call.isAnalyzed
-                            && call.recordingFilePath != null
-                            && call.processingError == null,
+                    isProcessing = hasRecording && isBeingProcessed && !hasError,
+                    isUnprocessed = hasRecording && !isAnalyzed && !isBeingProcessed && !hasError,
                     processingError = call.processingError
                 )
             },
@@ -95,6 +104,22 @@ class HomeViewModel @Inject constructor(
                 Log.e(TAG, "Error scanning for recordings", e)
             } finally {
                 _isScanning.value = false
+            }
+        }
+    }
+
+    fun processCall(callId: Long) {
+        _processingIds.update { it + callId }
+        pipelineOrchestrator.processCall(callId)
+
+        // Remove from processing set once the call is analyzed or errored
+        viewModelScope.launch {
+            callRepository.getAllCalls().collect { calls ->
+                val call = calls.find { it.id == callId }
+                if (call != null && (call.isAnalyzed || call.processingError != null)) {
+                    _processingIds.update { it - callId }
+                    return@collect
+                }
             }
         }
     }
@@ -121,8 +146,7 @@ class HomeViewModel @Inject constructor(
                         timestamp = System.currentTimeMillis(),
                         recordingFilePath = destFile.absolutePath
                     )
-                    val callId = callRepository.insertCall(call)
-                    pipelineOrchestrator.processCall(callId)
+                    callRepository.insertCall(call)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error importing recording", e)

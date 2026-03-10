@@ -46,6 +46,13 @@
             android:foregroundServiceType="mediaProcessing"
             android:exported="false" />
 
+        <!-- WorkManager's SystemForegroundService needs mediaProcessing type declared -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="mediaProcessing"
+            android:exported="false"
+            tools:node="merge" />
+
         <!-- Disable default WorkManager initializer (we use on-demand via Configuration.Provider) -->
         <provider
             android:name="androidx.startup.InitializationProvider"

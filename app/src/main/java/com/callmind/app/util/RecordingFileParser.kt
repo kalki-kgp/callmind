@@ -6,7 +6,6 @@ import android.provider.MediaStore
 import android.util.Log
 import com.callmind.app.data.local.db.entity.CallEntity
 import com.callmind.app.data.repository.CallRepository
-import com.callmind.app.service.PipelineOrchestrator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,8 +13,7 @@ import javax.inject.Singleton
 @Singleton
 class RecordingFileParser @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val callRepository: CallRepository,
-    private val pipelineOrchestrator: PipelineOrchestrator
+    private val callRepository: CallRepository
 ) {
     // Common OnePlus recording filename patterns
     private val filenamePatterns = listOf(
@@ -29,10 +27,12 @@ class RecordingFileParser @Inject constructor(
 
     /**
      * Query MediaStore for recordings in the configured directory,
-     * skip already-processed ones, insert new calls, and trigger the pipeline.
+     * skip already-known ones, and insert new calls (without triggering processing).
+     * Returns the list of newly inserted call IDs.
      */
-    suspend fun checkForNewRecordings(recordingDir: String) {
+    suspend fun checkForNewRecordings(recordingDir: String): List<Long> {
         val allFiles = queryRecordings(recordingDir)
+        val newCallIds = mutableListOf<Long>()
 
         for (file in allFiles) {
             try {
@@ -40,12 +40,12 @@ class RecordingFileParser @Inject constructor(
 
                 val callEntity = matchToCallLog(file) ?: createCallFromFilename(file)
                 val callId = callRepository.insertCall(callEntity)
-
-                pipelineOrchestrator.processCall(callId)
+                newCallIds.add(callId)
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing recording: ${file.name}", e)
             }
         }
+        return newCallIds
     }
 
     private fun queryRecordings(recordingDir: String): List<RecordingFile> {

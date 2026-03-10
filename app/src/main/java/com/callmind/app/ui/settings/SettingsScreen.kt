@@ -18,9 +18,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -121,7 +125,7 @@ fun SettingsScreen(
                 )
             }
 
-            // API Key
+            // Gemini API Key (always needed for transcription + embeddings)
             SettingsCard {
                 Text(
                     "Gemini API Key",
@@ -129,7 +133,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    "Required for transcription and AI analysis",
+                    "Required for transcription and embeddings",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
@@ -145,7 +149,149 @@ fun SettingsScreen(
                 )
             }
 
-            // Toggles
+            // LLM Provider selection
+            SettingsCard {
+                Text(
+                    "Analysis LLM Provider",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    "Which LLM to use for call analysis",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = uiState.llmProvider == "gemini",
+                        onClick = { viewModel.onLlmProviderChanged("gemini") },
+                        label = { Text("Gemini") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = GreenPrimary,
+                            selectedLabelColor = DarkBackground,
+                            containerColor = DarkSurfaceVariant,
+                            labelColor = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
+                    FilterChip(
+                        selected = uiState.llmProvider == "openai_compatible",
+                        onClick = { viewModel.onLlmProviderChanged("openai_compatible") },
+                        label = { Text("OpenAI Compatible") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = GreenPrimary,
+                            selectedLabelColor = DarkBackground,
+                            containerColor = DarkSurfaceVariant,
+                            labelColor = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
+                }
+
+                // OpenAI-compatible provider fields
+                if (uiState.llmProvider == "openai_compatible") {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Base URL",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    OutlinedTextField(
+                        value = uiState.openAiBaseUrl,
+                        onValueChange = viewModel::onOpenAiBaseUrlChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = textFieldColors,
+                        placeholder = {
+                            Text("https://api.tokenfactory...", color = TextSecondary)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "API Key",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    OutlinedTextField(
+                        value = uiState.openAiApiKey,
+                        onValueChange = viewModel::onOpenAiApiKeyChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = textFieldColors
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Model",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    OutlinedTextField(
+                        value = uiState.openAiModel,
+                        onValueChange = viewModel::onOpenAiModelChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = textFieldColors,
+                        placeholder = {
+                            Text("deepseek-ai/DeepSeek-V3-0324-fast", color = TextSecondary)
+                        }
+                    )
+                }
+            }
+
+            // Speech-to-Text
+            SettingsCard {
+                Text(
+                    "Speech-to-Text",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SettingToggle(
+                    title = "Use Local STT (Vosk)",
+                    description = if (uiState.isVoskModelDownloaded)
+                        "Transcribe on-device — no cloud needed"
+                    else
+                        "Download model first (36 MB)",
+                    checked = uiState.useLocalStt,
+                    onCheckedChange = viewModel::onUseLocalSttChanged,
+                    enabled = uiState.isVoskModelDownloaded
+                )
+
+                if (!uiState.isVoskModelDownloaded) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (uiState.isDownloadingModel) {
+                        LinearProgressIndicator(
+                            progress = { uiState.modelDownloadProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = GreenPrimary,
+                            trackColor = DarkSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Downloading model... ${(uiState.modelDownloadProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    } else {
+                        Button(
+                            onClick = { viewModel.downloadVoskModel() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = DarkSurfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onBackground
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Download Vosk Model (36 MB)")
+                        }
+                    }
+                }
+            }
+
+            // Processing
             SettingsCard {
                 Text(
                     "Processing",
@@ -153,14 +299,6 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-
-                SettingToggle(
-                    title = "Use Local STT (Whisper)",
-                    description = "Transcribe on-device instead of cloud (not yet available)",
-                    checked = uiState.useLocalStt,
-                    onCheckedChange = viewModel::onUseLocalSttChanged,
-                    enabled = false
-                )
 
                 SettingToggle(
                     title = "Auto-process recordings",

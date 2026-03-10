@@ -8,18 +8,23 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.core.app.NotificationCompat
 import com.callmind.app.R
+import com.callmind.app.data.local.VoskTranscriptionService
 import com.callmind.app.data.local.db.entity.TranscriptEntity
+import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.remote.GeminiTranscriptionService
 import com.callmind.app.data.repository.CallRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 
 @HiltWorker
 class TranscriptionWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val callRepository: CallRepository,
-    private val geminiTranscriptionService: GeminiTranscriptionService
+    private val geminiTranscriptionService: GeminiTranscriptionService,
+    private val voskTranscriptionService: VoskTranscriptionService,
+    private val userPreferences: UserPreferences
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -29,21 +34,29 @@ class TranscriptionWorker @AssistedInject constructor(
         val call = callRepository.getCallById(callId) ?: return Result.failure()
         val recordingPath = call.recordingFilePath ?: return Result.failure()
 
+        val useLocal = userPreferences.useLocalStt.first()
+        val sttLabel = if (useLocal) "Vosk" else "Gemini"
+
         try {
-            setForeground(createForegroundInfo("Transcribing: ${call.contactName ?: call.phoneNumber}"))
-        } catch (_: Exception) {
-            // Foreground info can fail if notification permission is denied
-        }
+            setForeground(createForegroundInfo("Transcribing ($sttLabel): ${call.contactName ?: call.phoneNumber}"))
+        } catch (_: Exception) { }
 
         return try {
             callRepository.clearProcessingError(callId)
-            val result = geminiTranscriptionService.transcribeAudio(recordingPath)
+
+            val (text, language, modelUsed) = if (useLocal) {
+                val result = voskTranscriptionService.transcribeAudio(recordingPath)
+                Triple(result.text, result.language, result.modelUsed)
+            } else {
+                val result = geminiTranscriptionService.transcribeAudio(recordingPath)
+                Triple(result.text, result.language, result.modelUsed)
+            }
 
             val transcript = TranscriptEntity(
                 callId = callId,
-                fullText = result.text,
-                language = result.language,
-                modelUsed = result.modelUsed
+                fullText = text,
+                language = language,
+                modelUsed = modelUsed
             )
             callRepository.insertTranscript(transcript)
             callRepository.updateCall(call.copy(isTranscribed = true, processingError = null))
