@@ -9,10 +9,12 @@ import androidx.navigation.navArgument
 import com.callmind.app.ui.calldetail.CallDetailScreen
 import com.callmind.app.ui.contact.ContactScreen
 import com.callmind.app.ui.home.HomeScreen
+import com.callmind.app.ui.permissions.PermissionScreen
 import com.callmind.app.ui.search.SearchScreen
 import com.callmind.app.ui.settings.SettingsScreen
 
 object Routes {
+    const val PERMISSIONS = "permissions"
     const val HOME = "home"
     const val CALL_DETAIL = "call/{callId}"
     const val CONTACT = "contact/{contactName}"
@@ -24,8 +26,24 @@ object Routes {
 }
 
 @Composable
-fun CallMindNavGraph(navController: NavHostController) {
-    NavHost(navController = navController, startDestination = Routes.HOME) {
+fun CallMindNavGraph(
+    navController: NavHostController,
+    hasPermissions: Boolean
+) {
+    NavHost(
+        navController = navController,
+        startDestination = if (hasPermissions) Routes.HOME else Routes.PERMISSIONS
+    ) {
+
+        composable(Routes.PERMISSIONS) {
+            PermissionScreen(
+                onAllGranted = {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.PERMISSIONS) { inclusive = true }
+                    }
+                }
+            )
+        }
 
         composable(Routes.HOME) {
             HomeScreen(
