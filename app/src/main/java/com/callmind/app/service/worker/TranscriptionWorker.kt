@@ -9,6 +9,7 @@ import androidx.work.WorkerParameters
 import androidx.core.app.NotificationCompat
 import com.callmind.app.R
 import com.callmind.app.data.local.db.entity.TranscriptEntity
+import com.callmind.app.data.remote.GeminiTranscriptionService
 import com.callmind.app.data.repository.CallRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -17,7 +18,8 @@ import dagger.assisted.AssistedInject
 class TranscriptionWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val callRepository: CallRepository
+    private val callRepository: CallRepository,
+    private val geminiTranscriptionService: GeminiTranscriptionService
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -30,16 +32,14 @@ class TranscriptionWorker @AssistedInject constructor(
         setForeground(createForegroundInfo("Transcribing: ${call.contactName ?: call.phoneNumber}"))
 
         return try {
-            // TODO: Integrate whisper.cpp or cloud STT here
-            // For now, this is the pipeline stub:
-            // 1. Read audio file from recordingPath
-            // 2. Run through whisper.cpp / cloud API
-            // 3. Save transcript
+            // Cloud STT via Gemini multimodal (until whisper.cpp is integrated)
+            val result = geminiTranscriptionService.transcribeAudio(recordingPath)
 
             val transcript = TranscriptEntity(
                 callId = callId,
-                fullText = "", // Will be populated by STT engine
-                modelUsed = "whisper-base"
+                fullText = result.text,
+                language = result.language,
+                modelUsed = result.modelUsed
             )
             callRepository.insertTranscript(transcript)
             callRepository.updateCall(call.copy(isTranscribed = true))

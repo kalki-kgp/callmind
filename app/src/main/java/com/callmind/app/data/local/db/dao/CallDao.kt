@@ -43,4 +43,7 @@ interface CallDao {
 
     @Query("SELECT COUNT(*) FROM calls WHERE phoneNumber = :phoneNumber")
     suspend fun getCallCountForNumber(phoneNumber: String): Int
+
+    @Query("SELECT COUNT(*) FROM calls WHERE recordingFilePath = :path")
+    suspend fun countByRecordingPath(path: String): Int
 }

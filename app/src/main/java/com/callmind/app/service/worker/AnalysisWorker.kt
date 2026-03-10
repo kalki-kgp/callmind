@@ -10,15 +10,18 @@ import androidx.core.app.NotificationCompat
 import com.callmind.app.R
 import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.remote.GeminiApiService
+import com.callmind.app.data.remote.model.AnalysisResult
 import com.callmind.app.data.remote.model.Content
 import com.callmind.app.data.remote.model.GeminiRequest
 import com.callmind.app.data.remote.model.Part
 import com.callmind.app.data.remote.model.extractText
+import com.callmind.app.data.local.db.entity.ActionItemEntity
 import com.callmind.app.data.local.db.entity.CallAnalysisEntity
 import com.callmind.app.data.repository.CallRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
 
 @HiltWorker
 class AnalysisWorker @AssistedInject constructor(
@@ -29,12 +32,16 @@ class AnalysisWorker @AssistedInject constructor(
     private val userPreferences: UserPreferences
 ) : CoroutineWorker(context, params) {
 
+    private val json = Json { encodeDefaults = true }
+
     override suspend fun doWork(): Result {
         val callId = inputData.getLong("call_id", -1)
         if (callId == -1L) return Result.failure()
 
         val call = callRepository.getCallById(callId) ?: return Result.failure()
         val transcript = callRepository.getTranscript(callId) ?: return Result.failure()
+
+        if (transcript.fullText.isBlank()) return Result.failure()
 
         setForeground(createForegroundInfo("Analyzing: ${call.contactName ?: call.phoneNumber}"))
 
@@ -49,19 +56,32 @@ class AnalysisWorker @AssistedInject constructor(
             val response = geminiApiService.generateContent(apiKey, request)
             val analysisText = response.extractText() ?: return Result.retry()
 
-            // TODO: Parse the structured JSON response from Gemini
+            // Parse structured response
+            val parsed = AnalysisResult.parse(analysisText)
+
             val analysis = CallAnalysisEntity(
                 callId = callId,
-                summary = analysisText,
-                sentiment = "NEUTRAL",
-                topicsJson = "[]",
-                actionItemsJson = "[]",
-                keyPointsJson = "[]",
+                summary = parsed.summary,
+                sentiment = parsed.sentiment,
+                topicsJson = json.encodeToString(parsed.topics),
+                actionItemsJson = json.encodeToString(parsed.actionItems),
+                keyPointsJson = json.encodeToString(parsed.keyPoints),
                 modelUsed = "gemini-2.0-flash"
             )
             callRepository.insertAnalysis(analysis)
-            callRepository.updateCall(call.copy(isAnalyzed = true))
 
+            // Save action items as separate entities for easy querying
+            if (parsed.actionItems.isNotEmpty()) {
+                val actionEntities = parsed.actionItems.map { item ->
+                    ActionItemEntity(
+                        callId = callId,
+                        description = item
+                    )
+                }
+                callRepository.insertActionItems(actionEntities)
+            }
+
+            callRepository.updateCall(call.copy(isAnalyzed = true))
             Result.success()
         } catch (e: Exception) {
             if (runAttemptCount < 3) Result.retry() else Result.failure()
@@ -70,16 +90,27 @@ class AnalysisWorker @AssistedInject constructor(
 
     private fun buildAnalysisPrompt(transcript: String, contactName: String?): String {
         return """
-            Analyze this phone call transcript and return a JSON response with:
-            1. "summary": A 2-3 sentence summary of the call
-            2. "sentiment": One of POSITIVE, NEGATIVE, NEUTRAL, MIXED
-            3. "topics": Array of topic strings discussed
-            4. "action_items": Array of action item strings
-            5. "key_points": Array of key points from the conversation
+You are analyzing a phone call transcript. Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 
-            Contact: ${contactName ?: "Unknown"}
-            Transcript:
-            $transcript
+{
+  "summary": "2-3 sentence summary of the call",
+  "sentiment": "POSITIVE or NEGATIVE or NEUTRAL or MIXED",
+  "topics": ["topic1", "topic2"],
+  "action_items": ["action item 1", "action item 2"],
+  "key_points": ["key point 1", "key point 2"]
+}
+
+Rules:
+- summary: concise, captures the main purpose and outcome of the call
+- sentiment: overall emotional tone of the conversation
+- topics: 2-5 short topic labels (e.g. "salary negotiation", "project deadline")
+- action_items: specific commitments or tasks mentioned (who needs to do what)
+- key_points: important facts or decisions from the conversation
+
+Contact name: ${contactName ?: "Unknown"}
+
+Transcript:
+$transcript
         """.trimIndent()
     }
 

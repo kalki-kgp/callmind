@@ -27,6 +27,7 @@ class CallRepository @Inject constructor(
     suspend fun deleteCall(id: Long) = callDao.deleteById(id)
     suspend fun getUntranscribedCalls(): List<CallEntity> = callDao.getUntranscribedCalls()
     suspend fun getUnanalyzedCalls(): List<CallEntity> = callDao.getUnanalyzedCalls()
+    suspend fun isRecordingProcessed(path: String): Boolean = callDao.countByRecordingPath(path) > 0
 
     // Transcripts
     suspend fun getTranscript(callId: Long): TranscriptEntity? = transcriptDao.getTranscriptForCall(callId)
