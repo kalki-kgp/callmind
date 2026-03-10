@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.callmind.app.data.local.db.CallMindDatabase
 import com.callmind.app.data.local.db.dao.AnalysisDao
 import com.callmind.app.data.local.db.dao.CallDao
+import com.callmind.app.data.local.db.dao.EmbeddingDao
 import com.callmind.app.data.local.db.dao.TranscriptDao
 import dagger.Module
 import dagger.Provides
@@ -24,7 +25,8 @@ object AppModule {
             context,
             CallMindDatabase::class.java,
             "callmind.db"
-        ).build()
+        ).fallbackToDestructiveMigration(false)
+            .build()
     }
 
     @Provides
@@ -35,4 +37,7 @@ object AppModule {
 
     @Provides
     fun provideAnalysisDao(db: CallMindDatabase): AnalysisDao = db.analysisDao()
+
+    @Provides
+    fun provideEmbeddingDao(db: CallMindDatabase): EmbeddingDao = db.embeddingDao()
 }

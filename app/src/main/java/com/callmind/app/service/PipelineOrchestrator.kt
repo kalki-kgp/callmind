@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.callmind.app.service.worker.AnalysisWorker
+import com.callmind.app.service.worker.EmbeddingWorker
 import com.callmind.app.service.worker.TranscriptionWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
@@ -17,7 +18,7 @@ import javax.inject.Singleton
 
 /**
  * Orchestrates the processing pipeline for call recordings.
- * Chains: Transcription → Analysis using WorkManager's work chaining.
+ * Chains: Transcription → Analysis → Embedding via WorkManager.
  */
 @Singleton
 class PipelineOrchestrator @Inject constructor(
@@ -26,8 +27,7 @@ class PipelineOrchestrator @Inject constructor(
     private val workManager = WorkManager.getInstance(context)
 
     /**
-     * Enqueue the full pipeline for a call: transcribe then analyze.
-     * Uses unique work to prevent duplicate processing of the same call.
+     * Enqueue the full pipeline: transcribe → analyze → generate embeddings.
      */
     fun processCall(callId: Long) {
         val networkConstraint = Constraints.Builder()
@@ -51,12 +51,21 @@ class PipelineOrchestrator @Inject constructor(
             .addTag("call_$callId")
             .build()
 
-        // Chain: transcription THEN analysis
+        val embeddingWork = OneTimeWorkRequestBuilder<EmbeddingWorker>()
+            .setInputData(workDataOf("call_id" to callId))
+            .setConstraints(networkConstraint)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag("embedding")
+            .addTag("call_$callId")
+            .build()
+
+        // Chain: transcription → analysis → embedding
         workManager.beginUniqueWork(
             "pipeline_$callId",
-            ExistingWorkPolicy.KEEP, // Don't re-process if already queued
+            ExistingWorkPolicy.KEEP,
             transcriptionWork
         ).then(analysisWork)
+            .then(embeddingWork)
             .enqueue()
     }
 
@@ -83,9 +92,6 @@ class PipelineOrchestrator @Inject constructor(
         )
     }
 
-    /**
-     * Cancel all pending work for a specific call.
-     */
     fun cancelProcessing(callId: Long) {
         workManager.cancelUniqueWork("pipeline_$callId")
         workManager.cancelUniqueWork("analysis_$callId")
