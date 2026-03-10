@@ -8,17 +8,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.callmind.app.ui.calldetail.CallDetailScreen
 import com.callmind.app.ui.contact.ContactScreen
-import com.callmind.app.ui.home.HomeScreen
+import com.callmind.app.ui.main.MainScreen
 import com.callmind.app.ui.permissions.PermissionScreen
-import com.callmind.app.ui.search.SearchScreen
 import com.callmind.app.ui.settings.SettingsScreen
 
 object Routes {
     const val PERMISSIONS = "permissions"
-    const val HOME = "home"
+    const val MAIN = "main"
     const val CALL_DETAIL = "call/{callId}"
     const val CONTACT = "contact/{contactName}"
-    const val SEARCH = "search"
     const val SETTINGS = "settings"
 
     fun callDetail(callId: Long) = "call/$callId"
@@ -32,23 +30,22 @@ fun CallMindNavGraph(
 ) {
     NavHost(
         navController = navController,
-        startDestination = if (hasPermissions) Routes.HOME else Routes.PERMISSIONS
+        startDestination = if (hasPermissions) Routes.MAIN else Routes.PERMISSIONS
     ) {
 
         composable(Routes.PERMISSIONS) {
             PermissionScreen(
                 onAllGranted = {
-                    navController.navigate(Routes.HOME) {
+                    navController.navigate(Routes.MAIN) {
                         popUpTo(Routes.PERMISSIONS) { inclusive = true }
                     }
                 }
             )
         }
 
-        composable(Routes.HOME) {
-            HomeScreen(
+        composable(Routes.MAIN) {
+            MainScreen(
                 onCallClick = { callId -> navController.navigate(Routes.callDetail(callId)) },
-                onSearchClick = { navController.navigate(Routes.SEARCH) },
                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                 onContactClick = { name -> navController.navigate(Routes.contact(name)) }
             )
@@ -66,13 +63,6 @@ fun CallMindNavGraph(
             arguments = listOf(navArgument("contactName") { type = NavType.StringType })
         ) {
             ContactScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Routes.SEARCH) {
-            SearchScreen(
-                onCallClick = { callId -> navController.navigate(Routes.callDetail(callId)) },
-                onBack = { navController.popBackStack() }
-            )
         }
 
         composable(Routes.SETTINGS) {

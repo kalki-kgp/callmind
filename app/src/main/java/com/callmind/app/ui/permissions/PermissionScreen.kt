@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +36,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
+import com.callmind.app.ui.theme.DarkSurface
+import com.callmind.app.ui.theme.GreenPrimary
+import com.callmind.app.ui.theme.TextSecondary
 
 data class PermissionItem(
     val permission: String,
@@ -77,7 +83,6 @@ fun PermissionScreen(
         }
     }
 
-    // Check if all granted
     val allGranted = permissionStates.all { it.isGranted }
     LaunchedEffect(allGranted) {
         if (allGranted) onAllGranted()
@@ -91,13 +96,14 @@ fun PermissionScreen(
     ) {
         Text(
             text = "CallMind needs some permissions",
-            style = MaterialTheme.typography.headlineSmall
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "These are required to read your call recordings and match them to your call history.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = TextSecondary
         )
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -105,7 +111,9 @@ fun PermissionScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -116,16 +124,20 @@ fun PermissionScreen(
                     Icon(
                         imageVector = if (item.isGranted) Icons.Default.CheckCircle else Icons.Default.Warning,
                         contentDescription = null,
-                        tint = if (item.isGranted) MaterialTheme.colorScheme.primary
+                        tint = if (item.isGranted) GreenPrimary
                         else MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(24.dp)
                     )
                     Column(modifier = Modifier.padding(start = 16.dp)) {
-                        Text(item.label, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
                         Text(
                             item.description,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = TextSecondary
                         )
                     }
                 }
@@ -140,7 +152,9 @@ fun PermissionScreen(
                     val denied = permissionStates.filter { !it.isGranted }.map { it.permission }
                     launcher.launch(denied.toTypedArray())
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Grant Permissions")
             }

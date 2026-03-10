@@ -11,29 +11,47 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.callmind.app.ui.components.CallTypeIcon
+import com.callmind.app.ui.components.ContactAvatar
+import com.callmind.app.ui.theme.DarkBackground
+import com.callmind.app.ui.theme.DarkSurface
+import com.callmind.app.ui.theme.DarkSurfaceVariant
+import com.callmind.app.ui.theme.GreenPrimary
+import com.callmind.app.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,27 +63,25 @@ fun CallDetailScreen(
     viewModel: CallDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val dateFormat = SimpleDateFormat("EEEE, MMM dd yyyy 'at' hh:mm a", Locale.getDefault())
     val context = LocalContext.current
 
     Scaffold(
+        containerColor = DarkBackground,
         topBar = {
             TopAppBar(
-                title = { Text(uiState.contactName ?: uiState.phoneNumber) },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
                     }
                 },
-                actions = {
-                    IconButton(onClick = {
-                        viewModel.exportCall { intent ->
-                            context.startActivity(Intent.createChooser(intent, "Share call summary"))
-                        }
-                    }) {
-                        Icon(Icons.Default.Share, contentDescription = "Export")
-                    }
-                }
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = DarkBackground
+                )
             )
         }
     ) { padding ->
@@ -73,74 +89,174 @@ fun CallDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Call metadata
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(uiState.callType, style = MaterialTheme.typography.labelMedium)
-                        uiState.durationSeconds?.let { secs ->
-                            Text(
-                                "${secs / 60}m ${secs % 60}s",
-                                style = MaterialTheme.typography.labelMedium
-                            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Avatar
+            ContactAvatar(
+                name = uiState.contactName ?: uiState.phoneNumber,
+                size = 96.dp
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Name
+            Text(
+                text = uiState.contactName ?: uiState.phoneNumber,
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Action buttons row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(horizontal = 32.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        viewModel.exportCall { intent ->
+                            context.startActivity(Intent.createChooser(intent, "Share call summary"))
                         }
-                    }
-                    if (uiState.timestamp > 0) {
+                    },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = DarkSurfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onBackground
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Share")
+                }
+                FilledTonalButton(
+                    onClick = { /* Re-analyze not exposed in ViewModel yet */ },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = DarkSurfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onBackground
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Reprocess")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Call info card
+            DetailCard(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CallTypeIcon(callType = uiState.callType)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = uiState.callType,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    uiState.durationSeconds?.let { secs ->
                         Text(
-                            text = dateFormat.format(Date(uiState.timestamp)),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp)
+                            text = "${secs / 60}m ${secs % 60}s",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
                         )
                     }
+                }
+                if (uiState.timestamp > 0) {
+                    val dateFormat = SimpleDateFormat("dd/MM/yyyy  HH:mm", Locale.getDefault())
+                    Text(
+                        text = dateFormat.format(Date(uiState.timestamp)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                if (uiState.phoneNumber.isNotEmpty() && uiState.contactName != null) {
+                    Text(
+                        text = uiState.phoneNumber,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
                 }
             }
 
             // Summary
             if (uiState.summary != null) {
-                SectionCard("Summary") {
-                    Text(uiState.summary!!, style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailSectionCard(
+                    title = "Summary",
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Text(
+                        uiState.summary!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 }
             }
 
             // Sentiment + Topics
             if (uiState.sentiment != null || uiState.topics.isNotEmpty()) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        if (uiState.sentiment != null) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Sentiment: ", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailCard(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    if (uiState.sentiment != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Sentiment",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            AssistChip(
+                                onClick = {},
+                                label = {
+                                    Text(
+                                        uiState.sentiment!!,
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = DarkSurfaceVariant,
+                                    labelColor = GreenPrimary
+                                ),
+                                border = null
+                            )
+                        }
+                    }
+                    if (uiState.topics.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Topics",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextSecondary
+                        )
+                        FlowRow(
+                            modifier = Modifier.padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            uiState.topics.forEach { topic ->
                                 AssistChip(
                                     onClick = {},
-                                    label = {
-                                        Text(
-                                            uiState.sentiment!!,
-                                            style = MaterialTheme.typography.labelMedium
-                                        )
-                                    }
+                                    label = { Text(topic) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = DarkSurfaceVariant,
+                                        labelColor = MaterialTheme.colorScheme.onBackground
+                                    ),
+                                    border = null
                                 )
-                            }
-                        }
-                        if (uiState.topics.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Topics", style = MaterialTheme.typography.titleSmall)
-                            FlowRow(
-                                modifier = Modifier.padding(top = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                uiState.topics.forEach { topic ->
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text(topic) }
-                                    )
-                                }
                             }
                         }
                     }
@@ -149,19 +265,29 @@ fun CallDetailScreen(
 
             // Action Items
             if (uiState.actionItems.isNotEmpty()) {
-                SectionCard("Action Items") {
-                    uiState.actionItems.forEachIndexed { index, item ->
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailSectionCard(
+                    title = "Action Items",
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    uiState.actionItems.forEach { item ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Checkbox(
                                 checked = item.isCompleted,
-                                onCheckedChange = { viewModel.toggleActionItem(item.id, it) }
+                                onCheckedChange = { viewModel.toggleActionItem(item.id, it) },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = GreenPrimary,
+                                    uncheckedColor = TextSecondary,
+                                    checkmarkColor = DarkBackground
+                                )
                             )
                             Text(
                                 item.description,
                                 style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(start = 4.dp)
                             )
                         }
@@ -171,12 +297,17 @@ fun CallDetailScreen(
 
             // Key Points
             if (uiState.keyPoints.isNotEmpty()) {
-                SectionCard("Key Points") {
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailSectionCard(
+                    title = "Key Points",
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
                     uiState.keyPoints.forEach { point ->
                         Text(
-                            "• $point",
+                            "\u2022  $point",
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(vertical = 2.dp)
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(vertical = 3.dp)
                         )
                     }
                 }
@@ -184,23 +315,58 @@ fun CallDetailScreen(
 
             // Transcript
             if (uiState.transcript != null) {
-                SectionCard("Transcript") {
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailSectionCard(
+                    title = "Transcript",
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
                     Text(
                         uiState.transcript!!,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun DetailCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(16.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun DetailSectionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(10.dp))
             content()
         }
     }
