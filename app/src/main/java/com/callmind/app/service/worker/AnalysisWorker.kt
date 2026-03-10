@@ -84,6 +84,10 @@ class AnalysisWorker @AssistedInject constructor(
             }
 
             callRepository.updateCall(call.copy(isAnalyzed = true))
+
+            // Show completion notification
+            showCompletionNotification(call.contactName ?: call.phoneNumber, parsed.summary)
+
             Result.success()
         } catch (e: Exception) {
             if (runAttemptCount < 3) Result.retry() else Result.failure()
@@ -130,6 +134,23 @@ $transcript
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
         )
     }
+
+    private fun showCompletionNotification(contact: String, summary: String) {
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE)
+                as android.app.NotificationManager
+
+        val notification = NotificationCompat.Builder(applicationContext, "processing_complete")
+            .setContentTitle("Call analyzed: $contact")
+            .setContentText(summary.take(100))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setAutoCancel(true)
+            .build()
+
+        manager.notify(callId.hashCode() + 1000, notification)
+    }
+
+    private val callId: Long get() = inputData.getLong("call_id", -1)
 
     companion object {
         private const val CHANNEL_ID = "analysis"

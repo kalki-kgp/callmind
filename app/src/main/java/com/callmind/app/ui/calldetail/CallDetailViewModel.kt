@@ -3,7 +3,9 @@ package com.callmind.app.ui.calldetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Intent
 import com.callmind.app.data.repository.CallRepository
+import com.callmind.app.util.ExportHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +39,8 @@ data class CallDetailUiState(
 @HiltViewModel
 class CallDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val callRepository: CallRepository
+    private val callRepository: CallRepository,
+    private val exportHelper: ExportHelper
 ) : ViewModel() {
 
     private val callId: Long = savedStateHandle["callId"] ?: -1
@@ -86,6 +89,13 @@ class CallDetailViewModel @Inject constructor(
                     })
                 }
             }
+        }
+    }
+
+    fun exportCall(onReady: (Intent) -> Unit) {
+        viewModelScope.launch {
+            val intent = exportHelper.exportCall(callId) ?: return@launch
+            onReady(intent)
         }
     }
 

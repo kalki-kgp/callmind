@@ -35,6 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Add
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,11 +53,20 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { viewModel.importRecording(it) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("CallMind") },
                 actions = {
+                    IconButton(onClick = { importLauncher.launch("audio/*") }) {
+                        Icon(Icons.Default.Add, contentDescription = "Import recording")
+                    }
                     IconButton(onClick = { viewModel.scanForRecordings() }) {
                         if (uiState.isScanning) {
                             CircularProgressIndicator(
