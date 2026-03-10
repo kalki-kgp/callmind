@@ -21,6 +21,8 @@ import com.callmind.app.data.repository.CallRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 @HiltWorker
@@ -63,9 +65,9 @@ class AnalysisWorker @AssistedInject constructor(
                 callId = callId,
                 summary = parsed.summary,
                 sentiment = parsed.sentiment,
-                topicsJson = json.encodeToString<List<String>>(parsed.topics),
-                actionItemsJson = json.encodeToString<List<String>>(parsed.actionItems),
-                keyPointsJson = json.encodeToString<List<String>>(parsed.keyPoints),
+                topicsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.topics),
+                actionItemsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.actionItems),
+                keyPointsJson = json.encodeToString(ListSerializer(String.serializer()), parsed.keyPoints),
                 modelUsed = "gemini-2.0-flash"
             )
             callRepository.insertAnalysis(analysis)
