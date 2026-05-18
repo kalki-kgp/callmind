@@ -2,6 +2,7 @@ package com.callmind.app.service.worker
 
 import android.content.Context
 import android.content.pm.ServiceInfo
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -43,6 +44,7 @@ class TranscriptionWorker @AssistedInject constructor(
 
         return try {
             callRepository.clearProcessingError(callId)
+            Log.d(TAG, "Starting transcription for call $callId using $sttLabel")
 
             val (text, language, modelUsed) = if (useLocal) {
                 val result = voskTranscriptionService.transcribeAudio(recordingPath)
@@ -51,6 +53,8 @@ class TranscriptionWorker @AssistedInject constructor(
                 val result = geminiTranscriptionService.transcribeAudio(recordingPath)
                 Triple(result.text, result.language, result.modelUsed)
             }
+
+            Log.d(TAG, "Transcription complete for call $callId: ${text.take(100)}...")
 
             val transcript = TranscriptEntity(
                 callId = callId,
@@ -63,12 +67,19 @@ class TranscriptionWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
+            Log.e(TAG, "Transcription failed for call $callId (attempt $runAttemptCount): ${e.message}", e)
+
+            // Don't retry config errors — they won't fix themselves
+            val isConfigError = e is IllegalStateException && e.message?.let {
+                it.contains("not configured") || it.contains("not downloaded")
+            } == true
+
+            if (isConfigError || runAttemptCount >= 3) {
                 val errorMsg = e.message?.take(200) ?: "Transcription failed"
-                callRepository.setProcessingError(callId, errorMsg)
+                callRepository.setProcessingError(callId, "STT ($sttLabel): $errorMsg")
                 Result.failure()
+            } else {
+                Result.retry()
             }
         }
     }
@@ -89,6 +100,7 @@ class TranscriptionWorker @AssistedInject constructor(
     }
 
     companion object {
+        private const val TAG = "TranscriptionWorker"
         private const val CHANNEL_ID = "transcription"
         private const val NOTIFICATION_ID = 2
     }

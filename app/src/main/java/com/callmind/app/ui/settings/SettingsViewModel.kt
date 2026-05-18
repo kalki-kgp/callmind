@@ -1,9 +1,13 @@
 package com.callmind.app.ui.settings
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.callmind.app.data.local.VoskModelManager
+import com.callmind.app.data.local.VoskTranscriptionService
 import com.callmind.app.data.local.preferences.UserPreferences
+import com.callmind.app.data.remote.GeminiTranscriptionService
+import com.callmind.app.data.remote.OpenAiCompatibleService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -24,13 +30,20 @@ data class SettingsUiState(
     val openAiModel: String = "deepseek-ai/DeepSeek-V3-0324-fast",
     val isVoskModelDownloaded: Boolean = false,
     val isDownloadingModel: Boolean = false,
-    val modelDownloadProgress: Float = 0f
+    val modelDownloadProgress: Float = 0f,
+    val sttTestResult: String? = null,
+    val isSttTesting: Boolean = false,
+    val llmTestResult: String? = null,
+    val isLlmTesting: Boolean = false
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val userPreferences: UserPreferences,
-    private val voskModelManager: VoskModelManager
+    private val voskModelManager: VoskModelManager,
+    private val voskTranscriptionService: VoskTranscriptionService,
+    private val geminiTranscriptionService: GeminiTranscriptionService,
+    private val openAiCompatibleService: OpenAiCompatibleService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -104,18 +117,109 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun saveSettings() {
+    fun testStt() {
         viewModelScope.launch {
-            with(_uiState.value) {
-                userPreferences.setRecordingDirectory(recordingDirectory)
-                userPreferences.setGeminiApiKey(geminiApiKey)
-                userPreferences.setUseLocalStt(useLocalStt)
-                userPreferences.setAutoProcess(autoProcess)
-                userPreferences.setLlmProvider(llmProvider)
-                userPreferences.setOpenAiBaseUrl(openAiBaseUrl)
-                userPreferences.setOpenAiApiKey(openAiApiKey)
-                userPreferences.setOpenAiModel(openAiModel)
+            _uiState.update { it.copy(isSttTesting = true, sttTestResult = null) }
+            try {
+                // Save current settings first so the services pick them up
+                saveSettingsInternal()
+
+                val useLocal = _uiState.value.useLocalStt
+                if (useLocal) {
+                    if (!voskModelManager.isModelDownloaded) {
+                        _uiState.update { it.copy(isSttTesting = false, sttTestResult = "FAIL: Vosk model not downloaded") }
+                        return@launch
+                    }
+                    // Just verify the model loads
+                    voskModelManager.getModel()
+                    _uiState.update { it.copy(isSttTesting = false, sttTestResult = "OK: Vosk model loaded successfully") }
+                } else {
+                    val apiKey = _uiState.value.geminiApiKey
+                    if (apiKey.isBlank()) {
+                        _uiState.update { it.copy(isSttTesting = false, sttTestResult = "FAIL: Gemini API key is empty") }
+                        return@launch
+                    }
+                    // Test Gemini by making a simple text-only request to check key validity
+                    val okhttp = okhttp3.OkHttpClient()
+                    val testBody = """{"contents":[{"parts":[{"text":"Say OK"}]}]}"""
+                    val request = okhttp3.Request.Builder()
+                        .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
+                        .post(testBody.toRequestBody("application/json".toMediaType()))
+                        .build()
+                    val response = okhttp.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        _uiState.update { it.copy(isSttTesting = false, sttTestResult = "OK: Gemini API key valid") }
+                    } else {
+                        _uiState.update { it.copy(isSttTesting = false, sttTestResult = "FAIL: Gemini ${response.code} — ${response.body?.string()?.take(100)}") }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "STT test failed", e)
+                _uiState.update { it.copy(isSttTesting = false, sttTestResult = "FAIL: ${e.message?.take(150)}") }
             }
         }
+    }
+
+    fun testLlm() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLlmTesting = true, llmTestResult = null) }
+            try {
+                saveSettingsInternal()
+
+                val provider = _uiState.value.llmProvider
+                if (provider == "openai_compatible") {
+                    val apiKey = _uiState.value.openAiApiKey
+                    if (apiKey.isBlank()) {
+                        _uiState.update { it.copy(isLlmTesting = false, llmTestResult = "FAIL: API key is empty") }
+                        return@launch
+                    }
+                    val result = openAiCompatibleService.generateContent("Say 'Hello from CallMind' in exactly those words.")
+                    _uiState.update { it.copy(isLlmTesting = false, llmTestResult = "OK: ${result.take(100)}") }
+                } else {
+                    val apiKey = _uiState.value.geminiApiKey
+                    if (apiKey.isBlank()) {
+                        _uiState.update { it.copy(isLlmTesting = false, llmTestResult = "FAIL: Gemini API key is empty") }
+                        return@launch
+                    }
+                    val okhttp = okhttp3.OkHttpClient()
+                    val testBody = """{"contents":[{"parts":[{"text":"Say 'Hello from CallMind' in exactly those words."}]}]}"""
+                    val request = okhttp3.Request.Builder()
+                        .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
+                        .post(testBody.toRequestBody("application/json".toMediaType()))
+                        .build()
+                    val response = okhttp.newCall(request).execute()
+                    val body = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        _uiState.update { it.copy(isLlmTesting = false, llmTestResult = "OK: Gemini responded (${response.code})") }
+                    } else {
+                        _uiState.update { it.copy(isLlmTesting = false, llmTestResult = "FAIL: ${response.code} — ${body.take(100)}") }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "LLM test failed", e)
+                _uiState.update { it.copy(isLlmTesting = false, llmTestResult = "FAIL: ${e.message?.take(150)}") }
+            }
+        }
+    }
+
+    private suspend fun saveSettingsInternal() {
+        with(_uiState.value) {
+            userPreferences.setRecordingDirectory(recordingDirectory)
+            userPreferences.setGeminiApiKey(geminiApiKey)
+            userPreferences.setUseLocalStt(useLocalStt)
+            userPreferences.setAutoProcess(autoProcess)
+            userPreferences.setLlmProvider(llmProvider)
+            userPreferences.setOpenAiBaseUrl(openAiBaseUrl)
+            userPreferences.setOpenAiApiKey(openAiApiKey)
+            userPreferences.setOpenAiModel(openAiModel)
+        }
+    }
+
+    fun saveSettings() {
+        viewModelScope.launch { saveSettingsInternal() }
+    }
+
+    companion object {
+        private const val TAG = "SettingsViewModel"
     }
 }

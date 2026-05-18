@@ -2,6 +2,7 @@ package com.callmind.app.service.worker
 
 import android.content.Context
 import android.content.pm.ServiceInfo
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -52,8 +53,10 @@ class AnalysisWorker @AssistedInject constructor(
         } catch (_: Exception) { }
 
         return try {
-            val prompt = buildAnalysisPrompt(transcript.fullText, call.contactName)
             val llmProvider = userPreferences.llmProvider.first()
+            Log.d(TAG, "Starting analysis for call $callId using $llmProvider")
+
+            val prompt = buildAnalysisPrompt(transcript.fullText, call.contactName)
 
             val (analysisText, modelUsed) = when (llmProvider) {
                 "openai_compatible" -> {
@@ -63,15 +66,19 @@ class AnalysisWorker @AssistedInject constructor(
                 }
                 else -> {
                     // Default to Gemini
-                    val apiKey = userPreferences.geminiApiKey.first() ?: return Result.failure()
+                    val apiKey = userPreferences.geminiApiKey.first()
+                        ?: throw IllegalStateException("Gemini API key not configured")
                     val request = GeminiRequest(
                         contents = listOf(Content(parts = listOf(Part(text = prompt))))
                     )
                     val response = geminiApiService.generateContent(apiKey, request)
-                    val text = response.extractText() ?: return Result.retry()
+                    val text = response.extractText()
+                        ?: throw IllegalStateException("Empty response from Gemini")
                     text to "gemini-2.0-flash"
                 }
             }
+
+            Log.d(TAG, "Analysis complete for call $callId: ${analysisText.take(100)}...")
 
             // Parse structured response
             val parsed = AnalysisResult.parse(analysisText)
@@ -105,12 +112,19 @@ class AnalysisWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
+            Log.e(TAG, "Analysis failed for call $callId (attempt $runAttemptCount): ${e.message}", e)
+
+            val isConfigError = e is IllegalStateException && e.message?.let {
+                it.contains("not configured") || it.contains("API key")
+            } == true
+
+            if (isConfigError || runAttemptCount >= 3) {
+                val provider = try { userPreferences.llmProvider.first() } catch (_: Exception) { "unknown" }
                 val errorMsg = e.message?.take(200) ?: "Analysis failed"
-                callRepository.setProcessingError(callId, errorMsg)
+                callRepository.setProcessingError(callId, "LLM ($provider): $errorMsg")
                 Result.failure()
+            } else {
+                Result.retry()
             }
         }
     }
@@ -174,6 +188,7 @@ $transcript
     private val callId: Long get() = inputData.getLong("call_id", -1)
 
     companion object {
+        private const val TAG = "AnalysisWorker"
         private const val CHANNEL_ID = "analysis"
         private const val NOTIFICATION_ID = 3
     }

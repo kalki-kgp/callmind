@@ -60,9 +60,10 @@ class PipelineOrchestrator @Inject constructor(
             .build()
 
         // Chain: transcription → analysis → embedding
+        // REPLACE so re-clicking "Process" actually retries
         workManager.beginUniqueWork(
             "pipeline_$callId",
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             transcriptionWork
         ).then(analysisWork)
             .then(embeddingWork)

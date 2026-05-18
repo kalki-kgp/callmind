@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +48,7 @@ import com.callmind.app.ui.theme.DarkBackground
 import com.callmind.app.ui.theme.DarkSurface
 import com.callmind.app.ui.theme.DarkSurfaceVariant
 import com.callmind.app.ui.theme.GreenPrimary
+import com.callmind.app.ui.theme.CallMissed
 import com.callmind.app.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -306,6 +308,79 @@ fun SettingsScreen(
                     checked = uiState.autoProcess,
                     onCheckedChange = viewModel::onAutoProcessChanged
                 )
+            }
+
+            // Connection Tests
+            SettingsCard {
+                Text(
+                    "Connection Tests",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    "Test your STT and LLM connections (saves settings first)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.testStt() },
+                        enabled = !uiState.isSttTesting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DarkSurfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onBackground
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (uiState.isSttTesting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = GreenPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Test STT")
+                        }
+                    }
+                    Button(
+                        onClick = { viewModel.testLlm() },
+                        enabled = !uiState.isLlmTesting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DarkSurfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onBackground
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (uiState.isLlmTesting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = GreenPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Test LLM")
+                        }
+                    }
+                }
+                uiState.sttTestResult?.let { result ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        result,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (result.startsWith("OK")) GreenPrimary else CallMissed
+                    )
+                }
+                uiState.llmTestResult?.let { result ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        result,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (result.startsWith("OK")) GreenPrimary else CallMissed
+                    )
+                }
             }
 
             Button(
