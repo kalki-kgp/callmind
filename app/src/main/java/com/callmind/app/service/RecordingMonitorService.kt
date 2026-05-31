@@ -19,10 +19,14 @@ import com.callmind.app.util.RecordingFileParser
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -34,12 +38,21 @@ class RecordingMonitorService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var contentObserver: ContentObserver? = null
 
+    // Serialize scans so two never run concurrently and race on check-then-insert.
+    private val scanMutex = Mutex()
+    // Coalesces rapid onChange bursts (one per file write) into a single delayed scan.
+    private var debounceJob: Job? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        startForeground(
+            NOTIFICATION_ID,
+            createNotification(),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        )
         startMonitoring()
     }
 
@@ -47,14 +60,7 @@ class RecordingMonitorService : Service() {
         contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
-                scope.launch {
-                    try {
-                        val recordingDir = userPreferences.recordingDirectory.first()
-                        recordingFileParser.checkForNewRecordings(recordingDir)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error checking for new recordings", e)
-                    }
-                }
+                scheduleScan()
             }
         }
 
@@ -65,13 +71,23 @@ class RecordingMonitorService : Service() {
         )
 
         // Run initial scan to discover new recordings (no auto-processing)
-        scope.launch {
-            try {
-                val recordingDir = userPreferences.recordingDirectory.first()
-                recordingFileParser.checkForNewRecordings(recordingDir)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in initial scan", e)
-            }
+        scope.launch { runScan() }
+    }
+
+    private fun scheduleScan() {
+        debounceJob?.cancel()
+        debounceJob = scope.launch {
+            delay(DEBOUNCE_MS)
+            runScan()
+        }
+    }
+
+    private suspend fun runScan() = scanMutex.withLock {
+        try {
+            val recordingDir = userPreferences.recordingDirectory.first()
+            recordingFileParser.checkForNewRecordings(recordingDir)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking for new recordings", e)
         }
     }
 
@@ -105,5 +121,6 @@ class RecordingMonitorService : Service() {
         private const val TAG = "RecordingMonitor"
         private const val CHANNEL_ID = "recording_monitor"
         private const val NOTIFICATION_ID = 1
+        private const val DEBOUNCE_MS = 1500L
     }
 }

@@ -1,5 +1,6 @@
 package com.callmind.app.ui.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -20,7 +21,7 @@ object Routes {
     const val SETTINGS = "settings"
 
     fun callDetail(callId: Long) = "call/$callId"
-    fun contact(contactName: String) = "contact/$contactName"
+    fun contact(contactName: String) = "contact/${Uri.encode(contactName)}"
 }
 
 @Composable

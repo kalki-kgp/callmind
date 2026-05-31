@@ -19,3 +19,21 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Kotlin build/cache dir
+.kotlin/
+
+# Ad-hoc test scratch dir (Python venv + real call recordings — never commit)
+test/
+
+# Python venv / caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Stray audio recordings
+*.mp3
+*.wav
+*.m4a
+*.amr

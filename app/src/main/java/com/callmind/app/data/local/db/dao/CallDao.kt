@@ -29,6 +29,9 @@ interface CallDao {
     @Query("SELECT * FROM calls WHERE isAnalyzed = 0 AND isTranscribed = 1")
     suspend fun getUnanalyzedCalls(): List<CallEntity>
 
+    @Query("SELECT * FROM calls WHERE isAnalyzed = 1")
+    suspend fun getAnalyzedCalls(): List<CallEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(call: CallEntity): Long
 

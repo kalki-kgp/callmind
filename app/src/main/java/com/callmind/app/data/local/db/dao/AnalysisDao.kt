@@ -33,6 +33,9 @@ interface AnalysisDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertActionItems(actionItems: List<ActionItemEntity>)
 
+    @Query("DELETE FROM action_items WHERE callId = :callId")
+    suspend fun deleteActionItemsForCall(callId: Long)
+
     @Query("UPDATE action_items SET isCompleted = :completed WHERE id = :id")
     suspend fun updateActionItemCompletion(id: Long, completed: Boolean)
 

@@ -12,6 +12,7 @@ import com.callmind.app.R
 import com.callmind.app.data.local.VoskTranscriptionService
 import com.callmind.app.data.local.db.entity.TranscriptEntity
 import com.callmind.app.data.local.preferences.UserPreferences
+import com.callmind.app.data.remote.ConfigException
 import com.callmind.app.data.remote.GeminiTranscriptionService
 import com.callmind.app.data.repository.CallRepository
 import dagger.assisted.Assisted
@@ -70,11 +71,7 @@ class TranscriptionWorker @AssistedInject constructor(
             Log.e(TAG, "Transcription failed for call $callId (attempt $runAttemptCount): ${e.message}", e)
 
             // Don't retry config errors — they won't fix themselves
-            val isConfigError = e is IllegalStateException && e.message?.let {
-                it.contains("not configured") || it.contains("not downloaded")
-            } == true
-
-            if (isConfigError || runAttemptCount >= 3) {
+            if (e is ConfigException || runAttemptCount >= 3) {
                 val errorMsg = e.message?.take(200) ?: "Transcription failed"
                 callRepository.setProcessingError(callId, "STT ($sttLabel): $errorMsg")
                 Result.failure()

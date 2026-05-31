@@ -93,6 +93,30 @@ class PipelineOrchestrator @Inject constructor(
         )
     }
 
+    /**
+     * Re-run the embedding step only (e.g., after switching embedding provider —
+     * vectors aren't comparable across models, so the index must be rebuilt).
+     */
+    fun embedCall(callId: Long) {
+        val networkConstraint = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val embeddingWork = OneTimeWorkRequestBuilder<EmbeddingWorker>()
+            .setInputData(workDataOf("call_id" to callId))
+            .setConstraints(networkConstraint)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag("embedding")
+            .addTag("call_$callId")
+            .build()
+
+        workManager.enqueueUniqueWork(
+            "embedding_$callId",
+            ExistingWorkPolicy.REPLACE,
+            embeddingWork
+        )
+    }
+
     fun cancelProcessing(callId: Long) {
         workManager.cancelUniqueWork("pipeline_$callId")
         workManager.cancelUniqueWork("analysis_$callId")

@@ -6,6 +6,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -45,33 +51,49 @@ class GeminiEmbeddingService @Inject constructor(
     override suspend fun embed(texts: List<String>): List<FloatArray> = withContext(Dispatchers.IO) {
         if (texts.isEmpty()) return@withContext emptyList()
         val apiKey = userPreferences.geminiApiKey.first()
-            ?: throw IllegalStateException("Gemini API key not configured")
+            ?: throw ConfigException("Gemini API key not configured")
 
         texts.chunked(MAX_BATCH_SIZE).flatMap { batch -> embedBatch(batch, apiKey) }
     }
 
     private fun embedBatch(texts: List<String>, apiKey: String): List<FloatArray> {
-        val requests = texts.map { text ->
-            """{"model":"$MODEL","content":{"parts":[{"text":"${ text.escapeJson() }"}]},"outputDimensionality":$OUTPUT_DIM}"""
+        val payload = buildJsonObject {
+            putJsonArray("requests") {
+                texts.forEach { text ->
+                    addJsonObject {
+                        put("model", MODEL)
+                        putJsonObject("content") {
+                            putJsonArray("parts") {
+                                addJsonObject { put("text", text) }
+                            }
+                        }
+                        put("outputDimensionality", OUTPUT_DIM)
+                    }
+                }
+            }
         }
-        val requestBody = """{"requests":[${requests.joinToString(",")}]}"""
+        val requestBody = json.encodeToString(JsonObject.serializer(), payload)
 
         val request = Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/$MODEL:batchEmbedContents?key=$apiKey")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        val body = response.body?.string()
-            ?: throw IllegalStateException("Empty response from Gemini embedding API")
+        okHttpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string()
+                ?: throw IllegalStateException("Empty response from Gemini embedding API")
 
-        if (!response.isSuccessful) {
-            // 429 (rate limit) and 5xx bubble up so the WorkManager job retries with back-off.
-            throw IllegalStateException("Gemini embedding API error ${response.code}: $body")
+            if (!response.isSuccessful) {
+                // 429 (rate limit) and 5xx bubble up so the WorkManager job retries with back-off.
+                throw IllegalStateException("Gemini embedding API error ${response.code}: $body")
+            }
+
+            val parsed = json.decodeFromString<BatchEmbedResponse>(body)
+            require(parsed.embeddings.size == texts.size) {
+                "Gemini embedding count mismatch: requested ${texts.size}, got ${parsed.embeddings.size}"
+            }
+            return parsed.embeddings.map { it.values.toFloatArray() }
         }
-
-        val parsed = json.decodeFromString<BatchEmbedResponse>(body)
-        return parsed.embeddings.map { it.values.toFloatArray() }
     }
 
     /**
@@ -79,15 +101,6 @@ class GeminiEmbeddingService @Inject constructor(
      */
     override suspend fun embedSingle(text: String): FloatArray {
         return embed(listOf(text)).first()
-    }
-
-    private fun String.escapeJson(): String {
-        return this
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
     }
 
     @Serializable

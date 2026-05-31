@@ -2,6 +2,7 @@ package com.callmind.app.data.local
 
 import android.content.Context
 import android.util.Log
+import com.callmind.app.data.remote.ConfigException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -35,7 +36,7 @@ class VoskModelManager @Inject constructor(
         cachedModel?.let { return it }
 
         if (!isModelDownloaded) {
-            throw IllegalStateException("Vosk model not downloaded. Call downloadModel() first.")
+            throw ConfigException("Vosk model not downloaded. Call downloadModel() first.")
         }
 
         val modelDir = File(modelsDir, CURRENT_MODEL_NAME)

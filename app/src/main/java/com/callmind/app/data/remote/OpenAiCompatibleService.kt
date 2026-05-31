@@ -6,6 +6,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,22 +32,19 @@ class OpenAiCompatibleService @Inject constructor(
     suspend fun generateContent(prompt: String): String = withContext(Dispatchers.IO) {
         val baseUrl = userPreferences.openAiBaseUrl.first()
         val apiKey = userPreferences.openAiApiKey.first()
-            ?: throw IllegalStateException("OpenAI-compatible API key not configured")
+            ?: throw ConfigException("OpenAI-compatible API key not configured")
         val model = userPreferences.openAiModel.first()
 
-        val escapedPrompt = prompt.escapeJson()
-
-        val requestBody = """
-        {
-            "model": "$model",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "$escapedPrompt"
+        val payload = buildJsonObject {
+            put("model", model)
+            putJsonArray("messages") {
+                addJsonObject {
+                    put("role", "user")
+                    put("content", prompt)
                 }
-            ]
+            }
         }
-        """.trimIndent()
+        val requestBody = json.encodeToString(JsonObject.serializer(), payload)
 
         val url = "${baseUrl.trimEnd('/')}/chat/completions"
 
@@ -53,26 +55,18 @@ class OpenAiCompatibleService @Inject constructor(
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        val body = response.body?.string()
-            ?: throw IllegalStateException("Empty response from API")
+        okHttpClient.newCall(request).execute().use { response ->
+            val body = response.body?.string()
+                ?: throw IllegalStateException("Empty response from API")
 
-        if (!response.isSuccessful) {
-            throw IllegalStateException("API error ${response.code}: $body")
+            if (!response.isSuccessful) {
+                throw IllegalStateException("API error ${response.code}: $body")
+            }
+
+            val parsed = json.decodeFromString<ChatCompletionResponse>(body)
+            parsed.choices.firstOrNull()?.message?.content
+                ?: throw IllegalStateException("No content in response")
         }
-
-        val parsed = json.decodeFromString<ChatCompletionResponse>(body)
-        parsed.choices.firstOrNull()?.message?.content
-            ?: throw IllegalStateException("No content in response")
-    }
-
-    private fun String.escapeJson(): String {
-        return this
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
     }
 
     @Serializable

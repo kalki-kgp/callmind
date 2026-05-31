@@ -384,11 +384,19 @@ fun SettingsScreen(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "Switching provider only affects calls indexed afterward — re-process " +
-                        "older calls to make them searchable under the new model.",
+                    "Switching provider rebuilds the search index, since vectors aren't " +
+                        "comparable across models.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                if (uiState.isReindexingEmbeddings) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Re-indexing embeddings…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GreenPrimary
+                    )
+                }
 
                 if (!uiState.isEmbeddingModelDownloaded) {
                     Spacer(modifier = Modifier.height(8.dp))

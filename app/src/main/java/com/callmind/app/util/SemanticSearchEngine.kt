@@ -58,9 +58,10 @@ class SemanticSearchEngine @Inject constructor(
         return scored
             .filter { it.score >= provider.searchThreshold }
             .sortedByDescending { it.score }
-            .take(topK)
-            // Deduplicate by callId (keep highest score per call)
+            // Deduplicate by callId (keep highest score per call) BEFORE limiting,
+            // otherwise dedup collapses the list below topK when one call dominates.
             .distinctBy { it.callId }
+            .take(topK)
     }
 
     companion object {

@@ -33,7 +33,7 @@ class GeminiTranscriptionService @Inject constructor(
 
     suspend fun transcribeAudio(audioFilePath: String): TranscriptionResult = withContext(Dispatchers.IO) {
         val apiKey = userPreferences.geminiApiKey.first()
-            ?: throw IllegalStateException("Gemini API key not configured")
+            ?: throw ConfigException("Gemini API key not configured")
 
         val file = File(audioFilePath)
         if (!file.exists()) throw IllegalStateException("Audio file not found: $audioFilePath")
@@ -66,24 +66,25 @@ class GeminiTranscriptionService @Inject constructor(
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw IllegalStateException("Empty response from Gemini")
+        okHttpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string()
+                ?: throw IllegalStateException("Empty response from Gemini")
 
-        if (!response.isSuccessful) {
-            throw IllegalStateException("Gemini API error ${response.code}: $responseBody")
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Gemini API error ${response.code}: $responseBody")
+            }
+
+            val geminiResponse = json.decodeFromString<GeminiResponseRaw>(responseBody)
+            val text = geminiResponse.candidates?.firstOrNull()
+                ?.content?.parts?.firstOrNull()?.text
+                ?: throw IllegalStateException("No transcription in response")
+
+            TranscriptionResult(
+                text = text.trim(),
+                language = detectLanguage(text),
+                modelUsed = "gemini-flash-lite-latest"
+            )
         }
-
-        val geminiResponse = json.decodeFromString<GeminiResponseRaw>(responseBody)
-        val text = geminiResponse.candidates?.firstOrNull()
-            ?.content?.parts?.firstOrNull()?.text
-            ?: throw IllegalStateException("No transcription in response")
-
-        TranscriptionResult(
-            text = text.trim(),
-            language = detectLanguage(text),
-            modelUsed = "gemini-flash-lite-latest"
-        )
     }
 
     private fun getMimeType(extension: String): String = when (extension.lowercase()) {

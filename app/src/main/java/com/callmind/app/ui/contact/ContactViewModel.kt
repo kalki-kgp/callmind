@@ -1,5 +1,6 @@
 package com.callmind.app.ui.contact
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -31,7 +32,7 @@ class ContactViewModel @Inject constructor(
     private val callRepository: CallRepository
 ) : ViewModel() {
 
-    private val contactName: String = savedStateHandle["contactName"] ?: ""
+    private val contactName: String = Uri.decode(savedStateHandle["contactName"] ?: "")
 
     val uiState = combine(
         callRepository.getCallsByContact(contactName),

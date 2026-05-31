@@ -35,7 +35,7 @@ class LocalEmbeddingService @Inject constructor(
     private suspend fun getEmbedder(): TextEmbedder = mutex.withLock {
         embedder?.let { return it }
         if (!modelManager.isModelDownloaded) {
-            throw IllegalStateException("Local embedding model not downloaded")
+            throw ConfigException("Local embedding model not downloaded")
         }
         val created = withContext(Dispatchers.IO) {
             val baseOptions = BaseOptions.builder()
@@ -61,4 +61,13 @@ class LocalEmbeddingService @Inject constructor(
     }
 
     override suspend fun embedSingle(text: String): FloatArray = embed(listOf(text)).first()
+
+    /**
+     * Releases the cached native [TextEmbedder]. Call after the model is re-downloaded or
+     * changed so the next embed lazily recreates it and we neither leak nor serve stale vectors.
+     */
+    suspend fun invalidate() = mutex.withLock {
+        embedder?.close()
+        embedder = null
+    }
 }

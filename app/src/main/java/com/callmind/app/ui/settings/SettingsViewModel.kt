@@ -11,14 +11,21 @@ import com.callmind.app.data.remote.GeminiEmbeddingService
 import com.callmind.app.data.remote.GeminiTranscriptionService
 import com.callmind.app.data.remote.LocalEmbeddingService
 import com.callmind.app.data.remote.OpenAiCompatibleService
+import com.callmind.app.data.repository.CallRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
@@ -39,7 +46,8 @@ data class SettingsUiState(
     val isDownloadingEmbeddingModel: Boolean = false,
     val embeddingModelDownloadProgress: Float = 0f,
     val testResults: List<ConnectionTestResult> = emptyList(),
-    val runningTestId: String? = null
+    val runningTestId: String? = null,
+    val isReindexingEmbeddings: Boolean = false
 )
 
 data class ConnectionTestResult(
@@ -58,7 +66,9 @@ class SettingsViewModel @Inject constructor(
     private val openAiCompatibleService: OpenAiCompatibleService,
     private val embeddingModelManager: EmbeddingModelManager,
     private val geminiEmbeddingService: GeminiEmbeddingService,
-    private val localEmbeddingService: LocalEmbeddingService
+    private val localEmbeddingService: LocalEmbeddingService,
+    private val callRepository: CallRepository,
+    private val okHttpClient: OkHttpClient
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -107,7 +117,22 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun onEmbeddingProviderChanged(value: String) {
+        val previous = _uiState.value.embeddingProvider
         _uiState.update { it.copy(embeddingProvider = value) }
+        if (value == previous) return
+        // Vectors aren't comparable across providers, so persist the choice and
+        // rebuild the index for the new model.
+        viewModelScope.launch {
+            userPreferences.setEmbeddingProvider(value)
+            _uiState.update { it.copy(isReindexingEmbeddings = true) }
+            try {
+                callRepository.reindexAllEmbeddings()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to re-index embeddings", e)
+            } finally {
+                _uiState.update { it.copy(isReindexingEmbeddings = false) }
+            }
+        }
     }
 
     fun downloadEmbeddingModel() {
@@ -163,12 +188,26 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun runAllTests() {
-        testSttCloud(); testSttLocal()
-        testLlmCloud(); testLlmOpenAi()
-        testEmbedCloud(); testEmbedLocal()
+        // Run sequentially in a single coroutine so runningTestId stays accurate
+        // and the per-test saveSettingsInternal() writes don't race DataStore.
+        viewModelScope.launch {
+            executeTest(TEST_STT_CLOUD, "STT · Cloud (Gemini)", sttCloudTest)
+            executeTest(TEST_STT_LOCAL, "STT · Local (Vosk)", sttLocalTest)
+            executeTest(TEST_LLM_CLOUD, "LLM · Cloud (Gemini)", llmCloudTest)
+            executeTest(TEST_LLM_OPENAI, "LLM · OpenAI-compatible", llmOpenAiTest)
+            executeTest(TEST_EMBED_CLOUD, "Embeddings · Cloud (Gemini)", embedCloudTest)
+            executeTest(TEST_EMBED_LOCAL, "Embeddings · Local (on-device)", embedLocalTest)
+        }
     }
 
-    fun testSttCloud() = runTest(TEST_STT_CLOUD, "STT · Cloud (Gemini)") {
+    fun testSttCloud() = runTest(TEST_STT_CLOUD, "STT · Cloud (Gemini)", sttCloudTest)
+    fun testSttLocal() = runTest(TEST_STT_LOCAL, "STT · Local (Vosk)", sttLocalTest)
+    fun testLlmCloud() = runTest(TEST_LLM_CLOUD, "LLM · Cloud (Gemini)", llmCloudTest)
+    fun testLlmOpenAi() = runTest(TEST_LLM_OPENAI, "LLM · OpenAI-compatible", llmOpenAiTest)
+    fun testEmbedCloud() = runTest(TEST_EMBED_CLOUD, "Embeddings · Cloud (Gemini)", embedCloudTest)
+    fun testEmbedLocal() = runTest(TEST_EMBED_LOCAL, "Embeddings · Local (on-device)", embedLocalTest)
+
+    private val sttCloudTest: suspend () -> String = {
         val apiKey = _uiState.value.geminiApiKey
         require(apiKey.isNotBlank()) { "Gemini API key is empty" }
         val body = geminiGenerate(apiKey, "Reply with the single word: OK")
@@ -176,7 +215,7 @@ class SettingsViewModel @Inject constructor(
             "Note: validates the key + model, not audio transcription.\n\n$body"
     }
 
-    fun testSttLocal() = runTest(TEST_STT_LOCAL, "STT · Local (Vosk)") {
+    private val sttLocalTest: suspend () -> String = {
         require(voskModelManager.isModelDownloaded) {
             "Vosk model not downloaded. Download it under Speech-to-Text first."
         }
@@ -184,14 +223,14 @@ class SettingsViewModel @Inject constructor(
         "Vosk model loaded successfully (${VoskModelManager.CURRENT_MODEL_NAME})."
     }
 
-    fun testLlmCloud() = runTest(TEST_LLM_CLOUD, "LLM · Cloud (Gemini)") {
+    private val llmCloudTest: suspend () -> String = {
         val apiKey = _uiState.value.geminiApiKey
         require(apiKey.isNotBlank()) { "Gemini API key is empty" }
         val body = geminiGenerate(apiKey, "Reply with the single word: pong")
         "Gemini responded.\n\n$body"
     }
 
-    fun testLlmOpenAi() = runTest(TEST_LLM_OPENAI, "LLM · OpenAI-compatible") {
+    private val llmOpenAiTest: suspend () -> String = {
         require(_uiState.value.openAiApiKey.isNotBlank()) {
             "OpenAI-compatible API key is empty"
         }
@@ -199,13 +238,13 @@ class SettingsViewModel @Inject constructor(
         "Endpoint responded:\n$result"
     }
 
-    fun testEmbedCloud() = runTest(TEST_EMBED_CLOUD, "Embeddings · Cloud (Gemini)") {
+    private val embedCloudTest: suspend () -> String = {
         require(_uiState.value.geminiApiKey.isNotBlank()) { "Gemini API key is empty" }
         val v = geminiEmbeddingService.embedSingle("CallMind embedding connection test")
         "OK — produced a ${v.size}-dim vector.\nFirst values: ${v.take(5).joinToString(", ")}"
     }
 
-    fun testEmbedLocal() = runTest(TEST_EMBED_LOCAL, "Embeddings · Local (on-device)") {
+    private val embedLocalTest: suspend () -> String = {
         require(embeddingModelManager.isModelDownloaded) {
             "On-device embedding model not downloaded. Download it under Search Embeddings first."
         }
@@ -213,41 +252,51 @@ class SettingsViewModel @Inject constructor(
         "OK — produced a ${v.size}-dim vector.\nFirst values: ${v.take(5).joinToString(", ")}"
     }
 
-    /** Runs [block], saving settings first, and records the outcome with full detail. */
+    /** Launches [executeTest] in its own coroutine for a single-test trigger. */
     private fun runTest(id: String, label: String, block: suspend () -> String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(runningTestId = id) }
-            saveSettingsInternal()
-            val result = try {
-                ConnectionTestResult(id, label, success = true, detail = block())
-            } catch (e: Exception) {
-                Log.e(TAG, "$label test failed", e)
-                ConnectionTestResult(id, label, success = false, detail = formatError(e))
-            }
-            _uiState.update { state ->
-                val others = state.testResults.filterNot { it.id == id }
-                state.copy(
-                    runningTestId = if (state.runningTestId == id) null else state.runningTestId,
-                    testResults = (others + result).sortedBy { TEST_ORDER.indexOf(it.id) }
-                )
-            }
+        viewModelScope.launch { executeTest(id, label, block) }
+    }
+
+    /** Runs [block], saving settings first, and records the outcome with full detail. */
+    private suspend fun executeTest(id: String, label: String, block: suspend () -> String) {
+        _uiState.update { it.copy(runningTestId = id) }
+        saveSettingsInternal()
+        val result = try {
+            ConnectionTestResult(id, label, success = true, detail = block())
+        } catch (e: Exception) {
+            Log.e(TAG, "$label test failed", e)
+            ConnectionTestResult(id, label, success = false, detail = formatError(e))
+        }
+        _uiState.update { state ->
+            val others = state.testResults.filterNot { it.id == id }
+            state.copy(
+                runningTestId = if (state.runningTestId == id) null else state.runningTestId,
+                testResults = (others + result).sortedBy { TEST_ORDER.indexOf(it.id) }
+            )
         }
     }
 
     /** Calls Gemini generateContent; returns the raw body on success, throws with code+body on failure. */
-    private fun geminiGenerate(apiKey: String, prompt: String): String {
-        val okhttp = okhttp3.OkHttpClient()
-        val testBody = """{"contents":[{"parts":[{"text":"$prompt"}]}]}"""
+    private suspend fun geminiGenerate(apiKey: String, prompt: String): String = withContext(Dispatchers.IO) {
+        val testBody = buildJsonObject {
+            put("contents", buildJsonArray {
+                add(buildJsonObject {
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject { put("text", JsonPrimitive(prompt)) })
+                    })
+                })
+            })
+        }.toString()
         val request = okhttp3.Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=$apiKey")
             .post(testBody.toRequestBody("application/json".toMediaType()))
             .build()
-        okhttp.newCall(request).execute().use { response ->
+        okHttpClient.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP ${response.code} ${response.message}\n$body")
             }
-            return body
+            body
         }
     }
 

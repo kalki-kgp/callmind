@@ -12,8 +12,9 @@ import java.nio.ByteOrder
 import java.nio.ShortBuffer
 
 /**
- * Converts audio files to PCM 16-bit, 16kHz, mono format for Vosk.
- * Uses Android's MediaExtractor + MediaCodec for decoding.
+ * Converts audio files to headerless raw PCM (16-bit LE, 16kHz, mono) for Vosk.
+ * Vosk's Recognizer.acceptWaveForm consumes raw PCM shorts directly, so no
+ * RIFF/WAV container is written. Uses MediaExtractor + MediaCodec for decoding.
  */
 object AudioConverter {
 
@@ -21,7 +22,7 @@ object AudioConverter {
     private const val TARGET_SAMPLE_RATE = 16000
 
     /**
-     * Convert an audio file to 16kHz mono PCM WAV suitable for Vosk.
+     * Convert an audio file to headerless 16kHz mono raw PCM suitable for Vosk.
      * Returns the path to the converted file, or the original path if already suitable.
      */
     fun convertToPcm16kMono(inputPath: String, cacheDir: File): String {
@@ -57,7 +58,7 @@ object AudioConverter {
 
             Log.d(TAG, "Input: $mime, ${sourceSampleRate}Hz, ${sourceChannels}ch")
 
-            // Check if it's already raw PCM WAV at 16kHz mono
+            // Check if it's already raw PCM at 16kHz mono
             if (mime == "audio/raw" && sourceSampleRate == TARGET_SAMPLE_RATE && sourceChannels == 1) {
                 return inputPath
             }
@@ -154,14 +155,23 @@ object AudioConverter {
     }
 
     private fun resample(input: ShortArray, inputRate: Int, outputRate: Int): ShortArray {
-        if (inputRate == outputRate) return input
+        if (inputRate == outputRate || input.isEmpty()) return input
         val ratio = inputRate.toDouble() / outputRate
         val outputLength = (input.size / ratio).toInt()
         val output = ShortArray(outputLength)
 
+        // Linear interpolation between adjacent source samples reduces the
+        // aliasing artefacts that pure nearest-neighbour index-picking produced.
         for (i in 0 until outputLength) {
-            val srcIndex = (i * ratio).toInt().coerceIn(0, input.size - 1)
-            output[i] = input[srcIndex]
+            val srcPos = i * ratio
+            val srcIndex = srcPos.toInt()
+            val frac = srcPos - srcIndex
+            val s0 = input[srcIndex.coerceIn(0, input.size - 1)].toInt()
+            val s1 = input[(srcIndex + 1).coerceIn(0, input.size - 1)].toInt()
+            val interpolated = s0 + (s1 - s0) * frac
+            output[i] = interpolated.toInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                .toShort()
         }
         return output
     }

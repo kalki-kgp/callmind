@@ -23,4 +23,7 @@ interface EmbeddingDao {
 
     @Query("DELETE FROM embeddings WHERE callId = :callId")
     suspend fun deleteByCallId(callId: Long)
+
+    @Query("DELETE FROM embeddings")
+    suspend fun deleteAll()
 }

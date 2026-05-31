@@ -2,6 +2,7 @@ package com.callmind.app.data.local
 
 import android.content.Context
 import android.util.Log
+import com.callmind.app.data.remote.ConfigException
 import com.callmind.app.util.AudioConverter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,7 @@ class VoskTranscriptionService @Inject constructor(
 
     suspend fun transcribeAudio(audioFilePath: String): TranscriptionResult = withContext(Dispatchers.IO) {
         if (!voskModelManager.isModelDownloaded) {
-            throw IllegalStateException("Vosk model not downloaded. Go to Settings to download it.")
+            throw ConfigException("Vosk model not downloaded. Go to Settings to download it.")
         }
 
         val model = voskModelManager.getModel()

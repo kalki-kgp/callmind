@@ -19,6 +19,7 @@ class EmbeddingProviderRegistry @Inject constructor(
     suspend fun current(): EmbeddingProvider {
         return when (userPreferences.embeddingProvider.first()) {
             PROVIDER_LOCAL -> localEmbeddingService
+            PROVIDER_CLOUD -> geminiEmbeddingService
             else -> geminiEmbeddingService
         }
     }

@@ -44,19 +44,27 @@ class EmbeddingModelManager @Inject constructor(
             val connection = URL(MODEL_URL).openConnection()
             connection.connectTimeout = 30_000
             connection.readTimeout = 120_000
-            val totalBytes = connection.contentLengthLong.coerceAtLeast(1)
+            val expectedBytes = connection.contentLengthLong
+            val totalBytes = expectedBytes.coerceAtLeast(1)
 
+            var totalRead = 0L
             connection.getInputStream().use { input ->
                 FileOutputStream(tmp).use { output ->
                     val buffer = ByteArray(8192)
                     var bytesRead: Int
-                    var totalRead = 0L
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         output.write(buffer, 0, bytesRead)
                         totalRead += bytesRead
                         onProgress(totalRead.toFloat() / totalBytes)
                     }
                 }
+            }
+
+            // Guard against truncated downloads / HTML error pages being promoted to .tflite.
+            if (expectedBytes > 0 && totalRead != expectedBytes) {
+                tmp.delete()
+                Log.e(TAG, "Embedding model download incomplete: $totalRead of $expectedBytes bytes")
+                return@withContext false
             }
 
             if (modelFile.exists()) modelFile.delete()

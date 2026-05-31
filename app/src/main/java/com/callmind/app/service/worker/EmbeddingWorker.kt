@@ -10,6 +10,7 @@ import androidx.work.WorkerParameters
 import com.callmind.app.R
 import com.callmind.app.data.local.db.dao.EmbeddingDao
 import com.callmind.app.data.local.db.entity.EmbeddingEntity
+import com.callmind.app.data.remote.ConfigException
 import com.callmind.app.data.remote.EmbeddingProviderRegistry
 import com.callmind.app.data.repository.CallRepository
 import com.callmind.app.util.SemanticSearchEngine.Companion.toByteArray
@@ -45,6 +46,9 @@ class EmbeddingWorker @AssistedInject constructor(
         } catch (_: Exception) { }
 
         return try {
+            // Clean rebuild: drop any partial/mismatched index left by a crashed prior attempt
+            embeddingDao.deleteByCallId(callId)
+
             // Chunk the transcript
             val chunks = chunkText(transcript.fullText)
             if (chunks.isEmpty()) return Result.success()
@@ -52,6 +56,9 @@ class EmbeddingWorker @AssistedInject constructor(
             // Generate embeddings in batch using the user-selected provider
             val provider = embeddingProviderRegistry.current()
             val vectors = provider.embed(chunks)
+            require(vectors.size == chunks.size) {
+                "Embedding count ${vectors.size} != chunk count ${chunks.size}"
+            }
 
             // Store embeddings, stamped with the model so search only compares like-for-like
             val entities = chunks.mapIndexed { index, chunk ->
@@ -67,11 +74,11 @@ class EmbeddingWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
+            if (e is ConfigException || runAttemptCount >= 3) {
                 callRepository.setProcessingError(callId, e.message?.take(200) ?: "Embedding failed")
                 Result.failure()
+            } else {
+                Result.retry()
             }
         }
     }

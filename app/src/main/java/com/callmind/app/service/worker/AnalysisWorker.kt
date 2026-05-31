@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import com.callmind.app.R
 import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.remote.GeminiApiService
+import com.callmind.app.data.remote.ConfigException
 import com.callmind.app.data.remote.OpenAiCompatibleService
 import com.callmind.app.data.remote.model.AnalysisResult
 import com.callmind.app.data.remote.model.Content
@@ -67,7 +68,7 @@ class AnalysisWorker @AssistedInject constructor(
                 else -> {
                     // Default to Gemini
                     val apiKey = userPreferences.geminiApiKey.first()
-                        ?: throw IllegalStateException("Gemini API key not configured")
+                        ?: throw ConfigException("Gemini API key not configured")
                     val request = GeminiRequest(
                         contents = listOf(Content(parts = listOf(Part(text = prompt))))
                     )
@@ -94,7 +95,8 @@ class AnalysisWorker @AssistedInject constructor(
             )
             callRepository.insertAnalysis(analysis)
 
-            // Save action items as separate entities for easy querying
+            // Replace action items (autoGenerate id + append would duplicate on retry)
+            callRepository.deleteActionItemsForCall(callId)
             if (parsed.actionItems.isNotEmpty()) {
                 val actionEntities = parsed.actionItems.map { item ->
                     ActionItemEntity(
@@ -114,11 +116,7 @@ class AnalysisWorker @AssistedInject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Analysis failed for call $callId (attempt $runAttemptCount): ${e.message}", e)
 
-            val isConfigError = e is IllegalStateException && e.message?.let {
-                it.contains("not configured") || it.contains("API key")
-            } == true
-
-            if (isConfigError || runAttemptCount >= 3) {
+            if (e is ConfigException || runAttemptCount >= 3) {
                 val provider = try { userPreferences.llmProvider.first() } catch (_: Exception) { "unknown" }
                 val errorMsg = e.message?.take(200) ?: "Analysis failed"
                 callRepository.setProcessingError(callId, "LLM ($provider): $errorMsg")

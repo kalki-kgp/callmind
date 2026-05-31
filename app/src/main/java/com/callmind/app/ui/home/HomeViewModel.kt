@@ -112,15 +112,15 @@ class HomeViewModel @Inject constructor(
         _processingIds.update { it + callId }
         pipelineOrchestrator.processCall(callId)
 
-        // Remove from processing set once the call is analyzed or errored
+        // Remove from processing set once the call is analyzed or errored.
+        // first { } is a terminal operator so the DB flow collector completes
+        // instead of leaking one collector per "Process" tap.
         viewModelScope.launch {
-            callRepository.getAllCalls().collect { calls ->
+            callRepository.getAllCalls().first { calls ->
                 val call = calls.find { it.id == callId }
-                if (call != null && (call.isAnalyzed || call.processingError != null)) {
-                    _processingIds.update { it - callId }
-                    return@collect
-                }
+                call != null && (call.isAnalyzed || call.processingError != null)
             }
+            _processingIds.update { it - callId }
         }
     }
 

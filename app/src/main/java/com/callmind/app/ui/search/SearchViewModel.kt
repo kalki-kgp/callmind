@@ -75,22 +75,28 @@ class SearchViewModel @Inject constructor(
     private suspend fun performSearch(query: String) {
         _uiState.update { it.copy(isSearching = true, searchError = null) }
 
-        try {
-            val results = if (_uiState.value.useSemanticSearch) {
-                performSemanticSearch(query)
-            } else {
-                performTextSearch(query)
-            }
-            _uiState.update { it.copy(results = results, isSearching = false) }
+        if (!_uiState.value.useSemanticSearch) {
+            runTextSearch(query, searchError = null)
+            return
+        }
+
+        val semanticResults = try {
+            performSemanticSearch(query)
         } catch (e: Exception) {
-            // Fall back to text search if semantic search fails
-            val textResults = performTextSearch(query)
+            // Semantic search failed; fall back to text search, surfacing a note.
+            runTextSearch(query, searchError = "Semantic search unavailable, showing text results")
+            return
+        }
+        _uiState.update { it.copy(results = semanticResults, isSearching = false) }
+    }
+
+    private suspend fun runTextSearch(query: String, searchError: String?) {
+        try {
+            val results = performTextSearch(query)
+            _uiState.update { it.copy(results = results, isSearching = false, searchError = searchError) }
+        } catch (e: Exception) {
             _uiState.update {
-                it.copy(
-                    results = textResults,
-                    isSearching = false,
-                    searchError = if (it.useSemanticSearch) "Semantic search unavailable, showing text results" else null
-                )
+                it.copy(results = emptyList(), isSearching = false, searchError = "Search failed")
             }
         }
     }

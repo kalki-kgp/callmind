@@ -1,5 +1,6 @@
 package com.callmind.app.di
 
+import com.callmind.app.BuildConfig
 import com.callmind.app.data.remote.GeminiApiService
 import dagger.Module
 import dagger.Provides
@@ -28,12 +29,18 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
-            .addInterceptor(
+        val builder = OkHttpClient.Builder()
+        if (BuildConfig.DEBUG) {
+            builder.addInterceptor(
                 HttpLoggingInterceptor().apply {
                     level = HttpLoggingInterceptor.Level.HEADERS
+                    // Gemini sends the API key as a ?key= query param; restricting logging to
+                    // debug builds keeps the secret out of release logcat. Also redact auth headers.
+                    redactHeader("Authorization")
                 }
             )
+        }
+        return builder
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(120, TimeUnit.SECONDS)
