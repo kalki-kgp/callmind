@@ -157,7 +157,7 @@ $transcript
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("CallMind — Analyzing")
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .build()
 
@@ -176,7 +176,7 @@ $transcript
             .setContentTitle("Call analyzed: $contact")
             .setContentText(summary.take(100))
             .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setAutoCancel(true)
             .build()
 

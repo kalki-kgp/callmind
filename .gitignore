@@ -37,3 +37,6 @@ __pycache__/
 *.wav
 *.m4a
 *.amr
+
+# graphify knowledge graph (regenerate with /graphify)
+/graphify-out/

@@ -111,7 +111,7 @@ class EmbeddingWorker @AssistedInject constructor(
         val notification = NotificationCompat.Builder(applicationContext, "analysis")
             .setContentTitle("CallMind — Indexing")
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .build()
 
