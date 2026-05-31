@@ -26,6 +26,7 @@ class UserPreferences @Inject constructor(
         val WHISPER_MODEL = stringPreferencesKey("whisper_model")
         val AUTO_PROCESS = booleanPreferencesKey("auto_process")
         val LLM_PROVIDER = stringPreferencesKey("llm_provider")
+        val EMBEDDING_PROVIDER = stringPreferencesKey("embedding_provider")
         val OPENAI_BASE_URL = stringPreferencesKey("openai_base_url")
         val OPENAI_API_KEY = stringPreferencesKey("openai_api_key")
         val OPENAI_MODEL = stringPreferencesKey("openai_model")
@@ -54,6 +55,11 @@ class UserPreferences @Inject constructor(
     /** "gemini" or "openai_compatible" */
     val llmProvider: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[Keys.LLM_PROVIDER] ?: "gemini"
+    }
+
+    /** "cloud" (Gemini) or "local" (on-device) */
+    val embeddingProvider: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.EMBEDDING_PROVIDER] ?: "cloud"
     }
 
     val openAiBaseUrl: Flow<String> = context.dataStore.data.map { prefs ->
@@ -90,6 +96,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setLlmProvider(provider: String) {
         context.dataStore.edit { it[Keys.LLM_PROVIDER] = provider }
+    }
+
+    suspend fun setEmbeddingProvider(provider: String) {
+        context.dataStore.edit { it[Keys.EMBEDDING_PROVIDER] = provider }
     }
 
     suspend fun setOpenAiBaseUrl(url: String) {

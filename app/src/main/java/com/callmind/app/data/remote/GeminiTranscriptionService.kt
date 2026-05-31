@@ -62,7 +62,7 @@ class GeminiTranscriptionService @Inject constructor(
         """.trimIndent()
 
         val request = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
+            .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=$apiKey")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -82,7 +82,7 @@ class GeminiTranscriptionService @Inject constructor(
         TranscriptionResult(
             text = text.trim(),
             language = detectLanguage(text),
-            modelUsed = "gemini-2.0-flash"
+            modelUsed = "gemini-flash-lite-latest"
         )
     }
 

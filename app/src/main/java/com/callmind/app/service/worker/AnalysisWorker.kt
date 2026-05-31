@@ -74,7 +74,7 @@ class AnalysisWorker @AssistedInject constructor(
                     val response = geminiApiService.generateContent(apiKey, request)
                     val text = response.extractText()
                         ?: throw IllegalStateException("Empty response from Gemini")
-                    text to "gemini-2.0-flash"
+                    text to "gemini-flash-lite-latest"
                 }
             }
 

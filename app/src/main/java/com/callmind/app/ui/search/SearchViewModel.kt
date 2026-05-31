@@ -96,7 +96,8 @@ class SearchViewModel @Inject constructor(
     }
 
     private suspend fun performSemanticSearch(query: String): List<SearchResult> {
-        val matches = semanticSearchEngine.search(query, topK = 15, threshold = 0.25f)
+        // Threshold is owned by the active embedding provider (model-specific floor).
+        val matches = semanticSearchEngine.search(query, topK = 15)
         return matches.mapNotNull { match ->
             val call = callRepository.getCallById(match.callId) ?: return@mapNotNull null
             SearchResult(

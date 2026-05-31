@@ -2,7 +2,7 @@ package com.callmind.app.util
 
 import com.callmind.app.data.local.db.dao.EmbeddingDao
 import com.callmind.app.data.local.db.entity.EmbeddingEntity
-import com.callmind.app.data.remote.GeminiEmbeddingService
+import com.callmind.app.data.remote.EmbeddingProviderRegistry
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -26,18 +26,21 @@ data class SemanticMatch(
 @Singleton
 class SemanticSearchEngine @Inject constructor(
     private val embeddingDao: EmbeddingDao,
-    private val embeddingService: GeminiEmbeddingService
+    private val embeddingProviderRegistry: EmbeddingProviderRegistry
 ) {
     suspend fun search(
         query: String,
-        topK: Int = 10,
-        threshold: Float = 0.3f
+        topK: Int = 10
     ): List<SemanticMatch> {
-        // 1. Embed the query
-        val queryEmbedding = embeddingService.embedSingle(query)
+        val provider = embeddingProviderRegistry.current()
 
-        // 2. Load all stored embeddings
+        // 1. Embed the query with the active provider
+        val queryEmbedding = provider.embedSingle(query)
+
+        // 2. Load stored embeddings produced by the SAME model — vectors from
+        //    different models live in different spaces and aren't comparable.
         val allEmbeddings = embeddingDao.getAllEmbeddings()
+            .filter { it.modelUsed == provider.modelName }
         if (allEmbeddings.isEmpty()) return emptyList()
 
         // 3. Compute cosine similarity for each
@@ -51,9 +54,9 @@ class SemanticSearchEngine @Inject constructor(
             )
         }
 
-        // 4. Filter and sort
+        // 4. Filter by the provider's calibrated threshold and sort
         return scored
-            .filter { it.score >= threshold }
+            .filter { it.score >= provider.searchThreshold }
             .sortedByDescending { it.score }
             .take(topK)
             // Deduplicate by callId (keep highest score per call)

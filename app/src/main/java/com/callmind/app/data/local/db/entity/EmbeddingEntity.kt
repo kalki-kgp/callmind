@@ -20,8 +20,8 @@ data class EmbeddingEntity(
     val callId: Long,
     val chunkIndex: Int, // which chunk of the transcript
     val chunkText: String, // the text this embedding represents
-    val embedding: ByteArray, // serialized FloatArray (768 dims for text-embedding-004)
-    val modelUsed: String = "text-embedding-004",
+    val embedding: ByteArray, // serialized FloatArray; dimension depends on modelUsed
+    val modelUsed: String = "gemini-embedding-001",
     val createdAt: Long = System.currentTimeMillis()
 ) {
     override fun equals(other: Any?): Boolean {

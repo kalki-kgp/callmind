@@ -1,116 +1,114 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # CallMind
 
 AI-powered Android app that transforms phone call recordings into searchable, summarized conversation memory.
 
+## Build Commands
+
+| Task | Command |
+|---|---|
+| Build debug APK | `./gradlew assembleDebug` |
+| Run unit tests | `./gradlew testDebugUnitTest` |
+| Run lint | `./gradlew lint` |
+| Full check | `./gradlew check` |
+
+Instrumented/UI tests (`connectedDebugAndroidTest`) require a connected device and cannot run in CI. Only `testDebugUnitTest` and lint are reliably executable without a device.
+
+**AGP note**: The project uses AGP 9.1.0 with a non-standard `compileSdk` block syntax:
+```kotlin
+compileSdk {
+    version = release(36) { minorApiLevel = 1 }
+}
+```
+This requires `platforms;android-36.1` in the SDK. Do not simplify this to `compileSdk = 36`.
+
 ## Tech Stack
-- **Language**: Kotlin
+
+- **Language**: Kotlin, minSdk 29, targetSdk 36
 - **UI**: Jetpack Compose + Material 3
 - **Architecture**: MVVM + Hilt DI + Coroutines/Flow
-- **Database**: Room
-- **Background**: WorkManager (transcription/analysis jobs)
+- **Database**: Room v3
+- **Background**: WorkManager (transcription/analysis/embedding jobs)
 - **Monitoring**: MediaStore ContentObserver in Foreground Service
-- **Local STT**: whisper.cpp (base model, quantized) — TODO
-- **Cloud STT fallback**: OpenAI Whisper API / Deepgram — TODO
-- **LLM**: Google Gemini 2.0 Flash (via Retrofit)
-- **Search**: Text search now, semantic search (ONNX + MiniLM) later
+- **Local STT**: Vosk (vosk-android AAR + JNA) — model downloaded at runtime via `VoskModelManager`
+- **Cloud STT**: Gemini 2.0 Flash multimodal (audio inlined as base64)
+- **LLM**: Google Gemini 2.0 Flash **or** any OpenAI-compatible endpoint (configurable in Settings)
+- **Embeddings**: Gemini `text-embedding-004` batch API
+- **Search**: Text search (SQL LIKE) + semantic search (brute-force cosine similarity over stored embeddings)
 - **Preferences**: DataStore
 
+## Architecture
+
+### Processing Pipeline
+
+New recordings flow through a WorkManager chain: `TranscriptionWorker → AnalysisWorker → EmbeddingWorker`. All three workers are chained by `PipelineOrchestrator` under a unique work name `pipeline_<callId>` (REPLACE policy, so re-triggering retries). Each worker uses exponential back-off and retries up to 3 times; config errors (missing API key, model not downloaded) short-circuit to `Result.failure()` immediately and store the error message in `calls.processingError`.
+
+### STT Mode Selection
+
+`TranscriptionWorker` reads `UserPreferences.useLocalStt` at runtime to choose between:
+- **Vosk** (`VoskTranscriptionService`): requires model downloaded via `VoskModelManager`; converts audio to 16 kHz mono PCM via `AudioConverter` before recognition
+- **Gemini** (`GeminiTranscriptionService`): inlines the raw audio file as base64 in a multimodal request
+
+### LLM Provider Selection
+
+`AnalysisWorker` reads `UserPreferences.llmProvider` (`"gemini"` or `"openai_compatible"`) to choose between `GeminiApiService` and `OpenAiCompatibleService`. The OpenAI-compatible path uses a configurable base URL, API key, and model name (defaults to a Nebius-hosted DeepSeek endpoint).
+
+### Database
+
+`CallMindDatabase` is at **version 3**. When adding new columns/tables:
+- Write an explicit `Migration` object and register it in `AppModule.provideDatabase`
+- `MIGRATION_2_3` adds `calls.processingError TEXT DEFAULT NULL` — use it as a template
+- `fallbackToDestructiveMigration(false)` is set, so missing migrations will crash rather than silently wipe data
+
+### Key DataStore Preferences
+
+| Key | Default | Purpose |
+|---|---|---|
+| `recording_directory` | `Music/Recordings/Call Recordings` | Root path scanned by ContentObserver |
+| `gemini_api_key` | null | Required for cloud STT + Gemini LLM + embeddings |
+| `use_local_stt` | false | Toggle Vosk vs Gemini for transcription |
+| `llm_provider` | `"gemini"` | `"gemini"` or `"openai_compatible"` |
+| `openai_base_url` / `openai_api_key` / `openai_model` | Nebius/DeepSeek defaults | OpenAI-compatible LLM config |
+| `auto_process` | false | Auto-trigger pipeline on new recordings |
+
+### Navigation
+
+Single-activity app (`MainActivity`) with Compose Navigation. `NavGraph` gates on permissions: the permission screen is shown first if required permissions are missing. Routes: `home`, `call_detail/{callId}`, `contact/{phoneNumber}`, `search`, `settings`.
+
 ## Project Structure
+
 ```
 com.callmind.app/
-├── CallMindApplication.kt      # Hilt app + WorkManager config
-├── MainActivity.kt             # Single activity, Compose nav
-├── di/                         # Hilt modules (AppModule, NetworkModule)
+├── di/                         # Hilt modules (AppModule: Room/DAOs, NetworkModule: OkHttp/Retrofit)
 ├── data/
-│   ├── local/db/               # Room database, DAOs, entities
-│   ├── local/preferences/      # DataStore user settings
-│   ├── remote/                 # Gemini API service + models
-│   └── repository/             # CallRepository (single source of truth)
+│   ├── local/
+│   │   ├── db/                 # Room database, DAOs, entities (calls, transcripts, analysis, action_items, embeddings)
+│   │   ├── preferences/        # UserPreferences (DataStore)
+│   │   ├── VoskTranscriptionService.kt
+│   │   └── VoskModelManager.kt
+│   ├── remote/
+│   │   ├── GeminiApiService.kt          # LLM analysis via Retrofit
+│   │   ├── GeminiTranscriptionService.kt # Cloud STT (raw OkHttp, not Retrofit — audio as base64)
+│   │   ├── GeminiEmbeddingService.kt
+│   │   ├── OpenAiCompatibleService.kt   # OpenAI-compatible LLM fallback
+│   │   └── model/              # AnalysisResult, GeminiModels
+│   └── repository/             # CallRepository (single source of truth for all DB + file ops)
 ├── service/
-│   ├── RecordingMonitorService  # Foreground service, ContentObserver
-│   └── worker/                  # TranscriptionWorker, AnalysisWorker
-├── ui/
-│   ├── navigation/             # NavGraph + Routes
-│   ├── home/                   # Call list with summaries
-│   ├── calldetail/             # Full call details + transcript
-│   ├── search/                 # Text/semantic search
-│   ├── contact/                # Per-contact conversation history
-│   ├── settings/               # Config: directory, API key, STT mode
-│   └── theme/                  # CallMindTheme, colors, typography
+│   ├── PipelineOrchestrator.kt  # Chains WorkManager jobs
+│   ├── RecordingMonitorService  # Foreground service + ContentObserver
+│   └── worker/                  # TranscriptionWorker, AnalysisWorker, EmbeddingWorker
+├── ui/                          # MVVM screens: home, calldetail, contact, search, settings, permissions
 └── util/
-    └── RecordingFileParser.kt  # Filename parsing + call log matching
+    ├── RecordingFileParser.kt   # Filename regex + call log matching
+    ├── AudioConverter.kt        # WAV/other → 16 kHz mono PCM for Vosk
+    ├── SemanticSearchEngine.kt  # Cosine similarity over EmbeddingEntity vectors
+    ├── ExportHelper.kt          # Shareable text export via FileProvider
+    └── NotificationHelper.kt   # Notification channel setup
 ```
 
-## Device Info
-- Target device: OnePlus Nord 5 (Snapdragon 7+ Gen 3)
-- Recording path: `Music/Recordings/Call Recordings/`
-- Recording format: typically WAV, filenames contain contact name + phone number + datetime
+## Device Target
 
-## Implementation Plan
-
-### Phase 1 — Foundation (DONE)
-- [x] Project setup (Compose, Material 3, Kotlin DSL)
-- [x] Dependencies (Room, Hilt, WorkManager, Navigation, Retrofit, DataStore)
-- [x] Room database schema (calls, transcripts, analysis, action_items)
-- [x] DAOs with Flow-based queries
-- [x] Repository layer
-- [x] Hilt DI modules (AppModule, NetworkModule)
-- [x] Gemini API service + request/response models
-- [x] DataStore preferences (recording dir, API key, STT mode)
-- [x] Navigation graph (home, call detail, contact, search, settings)
-- [x] All screens scaffolded with ViewModels
-- [x] RecordingMonitorService (ContentObserver)
-- [x] TranscriptionWorker + AnalysisWorker stubs
-- [x] RecordingFileParser (filename regex + call log matching)
-
-### Phase 2 — Core Pipeline (DONE)
-- [x] GeminiTranscriptionService — cloud STT using Gemini multimodal (audio → text)
-- [x] AnalysisResult parser — handles JSON extraction, markdown stripping, fallback
-- [x] TranscriptionWorker wired to GeminiTranscriptionService
-- [x] AnalysisWorker wired with proper JSON parsing + action item extraction
-- [x] PipelineOrchestrator — chains transcription → analysis via WorkManager
-- [x] RecordingMonitorService triggers pipeline on new recordings + processes backlog
-- [x] Duplicate detection (isRecordingProcessed) to avoid re-processing
-- [x] NotificationHelper for all worker notification channels
-- [x] HomeScreen with scan button, empty state, processing indicators, date/duration display
-- [x] Fallback: createCallFromFilename when call log matching fails
-- [ ] Integrate whisper.cpp via NDK/JNI for local STT (deferred to Phase 4)
-
-### Phase 3 — Polish & Features (DONE)
-- [x] Permission request flow with PermissionScreen (runtime permission UI)
-- [x] Navigation gates on permissions before showing home
-- [x] Proper date/time formatting across all screens
-- [x] Call duration display in home + detail screens
-- [x] Sentiment chips + topic chips in CallDetailScreen
-- [x] Checkable action items with real toggle in CallDetailScreen
-- [x] Key points section in CallDetailScreen
-- [x] Empty state for HomeScreen
-- [x] Scan button in HomeScreen toolbar
-- [x] Polished SettingsScreen with card sections + descriptions
-- [x] ContactScreen with topic chips + formatted call history
-- [ ] Pull-to-refresh on home screen (nice-to-have)
-- [ ] Error handling + retry UI (nice-to-have)
-
-### Phase 4 — Semantic Search (DONE)
-- [x] EmbeddingEntity + EmbeddingDao for vector storage in Room
-- [x] GeminiEmbeddingService using text-embedding-004 batch API
-- [x] SemanticSearchEngine with brute-force cosine similarity
-- [x] EmbeddingWorker in pipeline: transcription → analysis → embedding
-- [x] SearchScreen with semantic/text search toggle and match % scores
-- [x] DB version bump to 2 with destructive migration fallback
-
-### Phase 5 — Extras (DONE)
-- [x] Manual recording import via system file picker
-- [x] ExportHelper — export call summaries as shareable text files
-- [x] FileProvider for secure file sharing
-- [x] Share/export button on CallDetailScreen
-- [x] Processing-complete notification with summary preview
-- [ ] On-device STT with whisper.cpp (future enhancement)
-- [ ] Dark/light theme toggle (follows system by default)
-
-## Key Decisions
-- No call recording — only processes existing recordings from device storage
-- User configures recording directory path (default: OnePlus path)
-- Cloud STT via Gemini multimodal, cloud LLM via Gemini Flash for analysis
-- Semantic search via Gemini text-embedding-004 + local cosine similarity
-- Personal/open-source project, not targeting Play Store
+OnePlus Nord 5 (Snapdragon 7+ Gen 3). Recording path default: `Music/Recordings/Call Recordings/`. Filenames contain contact name + phone number + datetime and are parsed by `RecordingFileParser`.

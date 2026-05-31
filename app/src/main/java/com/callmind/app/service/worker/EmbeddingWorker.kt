@@ -10,7 +10,7 @@ import androidx.work.WorkerParameters
 import com.callmind.app.R
 import com.callmind.app.data.local.db.dao.EmbeddingDao
 import com.callmind.app.data.local.db.entity.EmbeddingEntity
-import com.callmind.app.data.remote.GeminiEmbeddingService
+import com.callmind.app.data.remote.EmbeddingProviderRegistry
 import com.callmind.app.data.repository.CallRepository
 import com.callmind.app.util.SemanticSearchEngine.Companion.toByteArray
 import dagger.assisted.Assisted
@@ -26,7 +26,7 @@ class EmbeddingWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val callRepository: CallRepository,
     private val embeddingDao: EmbeddingDao,
-    private val embeddingService: GeminiEmbeddingService
+    private val embeddingProviderRegistry: EmbeddingProviderRegistry
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -49,16 +49,18 @@ class EmbeddingWorker @AssistedInject constructor(
             val chunks = chunkText(transcript.fullText)
             if (chunks.isEmpty()) return Result.success()
 
-            // Generate embeddings in batch
-            val vectors = embeddingService.embed(chunks)
+            // Generate embeddings in batch using the user-selected provider
+            val provider = embeddingProviderRegistry.current()
+            val vectors = provider.embed(chunks)
 
-            // Store embeddings
+            // Store embeddings, stamped with the model so search only compares like-for-like
             val entities = chunks.mapIndexed { index, chunk ->
                 EmbeddingEntity(
                     callId = callId,
                     chunkIndex = index,
                     chunkText = chunk,
-                    embedding = vectors[index].toByteArray()
+                    embedding = vectors[index].toByteArray(),
+                    modelUsed = provider.modelName
                 )
             }
             embeddingDao.insertAll(entities)
