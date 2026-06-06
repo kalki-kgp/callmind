@@ -17,6 +17,9 @@ interface CallDao {
     @Query("SELECT * FROM calls WHERE id = :callId")
     suspend fun getCallById(callId: Long): CallEntity?
 
+    @Query("SELECT * FROM calls WHERE id = :callId")
+    fun observeCallById(callId: Long): Flow<CallEntity?>
+
     @Query("SELECT * FROM calls WHERE phoneNumber = :phoneNumber ORDER BY timestamp DESC")
     fun getCallsByPhoneNumber(phoneNumber: String): Flow<List<CallEntity>>
 
@@ -55,4 +58,13 @@ interface CallDao {
 
     @Query("UPDATE calls SET processingError = NULL WHERE id = :callId")
     suspend fun clearProcessingError(callId: Long)
+
+    @Query("UPDATE calls SET processingStage = :stage WHERE id = :callId")
+    suspend fun setProcessingStage(callId: Long, stage: String?)
+
+    @Query("UPDATE calls SET isTranscribed = :value WHERE id = :callId")
+    suspend fun setTranscribed(callId: Long, value: Boolean)
+
+    @Query("UPDATE calls SET isAnalyzed = :value WHERE id = :callId")
+    suspend fun setAnalyzed(callId: Long, value: Boolean)
 }

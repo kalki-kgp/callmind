@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.callmind.app.ui.components.CallTypeIcon
+import com.callmind.app.ui.components.ProcessingRowCompact
 import com.callmind.app.ui.components.callTypeColor
 import com.callmind.app.ui.theme.CallMissed
 import com.callmind.app.ui.theme.DarkDivider
@@ -211,6 +212,10 @@ private fun CallListItem(
                     Modifier.clickable(onClick = onContactClick)
                 } else Modifier
             )
+            if (call.isProcessing && call.processingStage != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                ProcessingRowCompact(stage = call.processingStage)
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -228,16 +233,7 @@ private fun CallListItem(
                         color = CallMissed
                     )
                 } else if (call.isProcessing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(10.dp),
-                        strokeWidth = 1.5.dp,
-                        color = GreenPrimary
-                    )
-                    Text(
-                        text = "Processing",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GreenPrimary
-                    )
+                    // Stage shown above via ProcessingRowCompact.
                 } else if (call.summary != null) {
                     Icon(
                         Icons.Default.AutoAwesome,
@@ -258,8 +254,10 @@ private fun CallListItem(
                     )
                 }
                 if (call.durationSeconds != null) {
+                    val needsSeparator = !call.isProcessing &&
+                            (call.summary != null || call.processingError != null)
                     Text(
-                        text = "${if (call.isProcessing || call.summary != null || call.processingError != null) " · " else ""}${formatDuration(call.durationSeconds)}",
+                        text = "${if (needsSeparator) " · " else ""}${formatDuration(call.durationSeconds)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

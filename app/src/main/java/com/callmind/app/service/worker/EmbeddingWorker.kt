@@ -1,18 +1,16 @@
 package com.callmind.app.service.worker
 
 import android.content.Context
-import android.content.pm.ServiceInfo
-import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.callmind.app.R
 import com.callmind.app.data.local.db.dao.EmbeddingDao
 import com.callmind.app.data.local.db.entity.EmbeddingEntity
+import com.callmind.app.data.local.db.entity.ProcessingStage
 import com.callmind.app.data.remote.ConfigException
 import com.callmind.app.data.remote.EmbeddingProviderRegistry
 import com.callmind.app.data.repository.CallRepository
+import com.callmind.app.util.NotificationHelper
 import com.callmind.app.util.SemanticSearchEngine.Companion.toByteArray
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -27,22 +25,28 @@ class EmbeddingWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val callRepository: CallRepository,
     private val embeddingDao: EmbeddingDao,
-    private val embeddingProviderRegistry: EmbeddingProviderRegistry
+    private val embeddingProviderRegistry: EmbeddingProviderRegistry,
+    private val notificationHelper: NotificationHelper
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val callId = inputData.getLong("call_id", -1)
         if (callId == -1L) return Result.failure()
 
-        // Skip if embeddings already exist
-        if (embeddingDao.countEmbeddingsForCall(callId) > 0) return Result.success()
+        // Skip if embeddings already exist — pipeline is effectively done
+        if (embeddingDao.countEmbeddingsForCall(callId) > 0) {
+            callRepository.setProcessingStage(callId, ProcessingStage.COMPLETED)
+            return Result.success()
+        }
 
         val transcript = callRepository.getTranscript(callId) ?: return Result.failure()
         if (transcript.fullText.isBlank()) return Result.failure()
 
         val call = callRepository.getCallById(callId)
+        val contactLabel = call?.contactName ?: call?.phoneNumber ?: "call"
+        callRepository.setProcessingStage(callId, ProcessingStage.EMBEDDING)
         try {
-            setForeground(createForegroundInfo("Indexing: ${call?.contactName ?: call?.phoneNumber ?: "call"}"))
+            setForeground(notificationHelper.processingForegroundInfo(contactLabel, ProcessingStage.EMBEDDING))
         } catch (_: Exception) { }
 
         return try {
@@ -51,7 +55,10 @@ class EmbeddingWorker @AssistedInject constructor(
 
             // Chunk the transcript
             val chunks = chunkText(transcript.fullText)
-            if (chunks.isEmpty()) return Result.success()
+            if (chunks.isEmpty()) {
+                callRepository.setProcessingStage(callId, ProcessingStage.COMPLETED)
+                return Result.success()
+            }
 
             // Generate embeddings in batch using the user-selected provider
             val provider = embeddingProviderRegistry.current()
@@ -72,10 +79,12 @@ class EmbeddingWorker @AssistedInject constructor(
             }
             embeddingDao.insertAll(entities)
 
+            callRepository.setProcessingStage(callId, ProcessingStage.COMPLETED)
             Result.success()
         } catch (e: Exception) {
             if (e is ConfigException || runAttemptCount >= 3) {
                 callRepository.setProcessingError(callId, e.message?.take(200) ?: "Embedding failed")
+                callRepository.setProcessingStage(callId, ProcessingStage.FAILED)
                 Result.failure()
             } else {
                 Result.retry()
@@ -105,20 +114,5 @@ class EmbeddingWorker @AssistedInject constructor(
         }
 
         return chunks.filter { it.isNotBlank() }
-    }
-
-    private fun createForegroundInfo(text: String): ForegroundInfo {
-        val notification = NotificationCompat.Builder(applicationContext, "analysis")
-            .setContentTitle("CallMind — Indexing")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setOngoing(true)
-            .build()
-
-        return ForegroundInfo(
-            4,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        )
     }
 }

@@ -48,6 +48,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.callmind.app.ui.components.CallTypeIcon
 import com.callmind.app.ui.components.ContactAvatar
+import com.callmind.app.ui.components.ProcessingStepper
 import com.callmind.app.ui.theme.DarkBackground
 import com.callmind.app.ui.theme.DarkSurface
 import com.callmind.app.ui.theme.DarkSurfaceVariant
@@ -137,6 +138,7 @@ fun CallDetailScreen(
                 }
                 FilledTonalButton(
                     onClick = { viewModel.processCall() },
+                    enabled = !uiState.isProcessing,
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = DarkSurfaceVariant,
                         contentColor = MaterialTheme.colorScheme.onBackground
@@ -150,7 +152,13 @@ fun CallDetailScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (uiState.summary != null) "Reprocess" else "Process")
+                    Text(
+                        when {
+                            uiState.isProcessing -> "Processing…"
+                            uiState.summary != null -> "Reprocess"
+                            else -> "Process"
+                        }
+                    )
                 }
             }
 
@@ -194,6 +202,28 @@ fun CallDetailScreen(
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 4.dp)
                     )
+                }
+            }
+
+            // Live processing progress
+            if (uiState.isProcessing && uiState.processingStage != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                DetailCard(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Processing",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = uiState.processingStage!!.activeLabel + "…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = GreenPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    ProcessingStepper(stage = uiState.processingStage!!)
                 }
             }
 

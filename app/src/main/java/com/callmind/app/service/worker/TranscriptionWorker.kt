@@ -1,20 +1,18 @@
 package com.callmind.app.service.worker
 
 import android.content.Context
-import android.content.pm.ServiceInfo
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import androidx.core.app.NotificationCompat
-import com.callmind.app.R
 import com.callmind.app.data.local.VoskTranscriptionService
+import com.callmind.app.data.local.db.entity.ProcessingStage
 import com.callmind.app.data.local.db.entity.TranscriptEntity
 import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.remote.ConfigException
 import com.callmind.app.data.remote.GeminiTranscriptionService
 import com.callmind.app.data.repository.CallRepository
+import com.callmind.app.util.NotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -26,7 +24,8 @@ class TranscriptionWorker @AssistedInject constructor(
     private val callRepository: CallRepository,
     private val geminiTranscriptionService: GeminiTranscriptionService,
     private val voskTranscriptionService: VoskTranscriptionService,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val notificationHelper: NotificationHelper
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -38,9 +37,11 @@ class TranscriptionWorker @AssistedInject constructor(
 
         val useLocal = userPreferences.useLocalStt.first()
         val sttLabel = if (useLocal) "Vosk" else "Gemini"
+        val contactLabel = call.contactName ?: call.phoneNumber
 
+        callRepository.setProcessingStage(callId, ProcessingStage.TRANSCRIBING)
         try {
-            setForeground(createForegroundInfo("Transcribing ($sttLabel): ${call.contactName ?: call.phoneNumber}"))
+            setForeground(notificationHelper.processingForegroundInfo(contactLabel, ProcessingStage.TRANSCRIBING))
         } catch (_: Exception) { }
 
         return try {
@@ -64,7 +65,7 @@ class TranscriptionWorker @AssistedInject constructor(
                 modelUsed = modelUsed
             )
             callRepository.insertTranscript(transcript)
-            callRepository.updateCall(call.copy(isTranscribed = true, processingError = null))
+            callRepository.markTranscribed(callId)
 
             Result.success()
         } catch (e: Exception) {
@@ -74,6 +75,7 @@ class TranscriptionWorker @AssistedInject constructor(
             if (e is ConfigException || runAttemptCount >= 3) {
                 val errorMsg = e.message?.take(200) ?: "Transcription failed"
                 callRepository.setProcessingError(callId, "STT ($sttLabel): $errorMsg")
+                callRepository.setProcessingStage(callId, ProcessingStage.FAILED)
                 Result.failure()
             } else {
                 Result.retry()
@@ -81,24 +83,7 @@ class TranscriptionWorker @AssistedInject constructor(
         }
     }
 
-    private fun createForegroundInfo(text: String): ForegroundInfo {
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("CallMind — Transcribing")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setOngoing(true)
-            .build()
-
-        return ForegroundInfo(
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        )
-    }
-
     companion object {
         private const val TAG = "TranscriptionWorker"
-        private const val CHANNEL_ID = "transcription"
-        private const val NOTIFICATION_ID = 2
     }
 }

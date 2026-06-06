@@ -15,5 +15,7 @@ data class CallEntity(
     val isTranscribed: Boolean = false,
     val isAnalyzed: Boolean = false,
     val processingError: String? = null,
+    /** Active pipeline stage name (see [ProcessingStage]); null when idle. */
+    val processingStage: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

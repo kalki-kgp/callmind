@@ -7,6 +7,7 @@ import com.callmind.app.data.local.db.dao.TranscriptDao
 import com.callmind.app.data.local.db.entity.ActionItemEntity
 import com.callmind.app.data.local.db.entity.CallAnalysisEntity
 import com.callmind.app.data.local.db.entity.CallEntity
+import com.callmind.app.data.local.db.entity.ProcessingStage
 import com.callmind.app.data.local.db.entity.TranscriptEntity
 import com.callmind.app.service.PipelineOrchestrator
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,7 @@ class CallRepository @Inject constructor(
     fun getCallsByContact(contactName: String): Flow<List<CallEntity>> = callDao.getCallsByContactName(contactName)
     fun getAllContacts(): Flow<List<String>> = callDao.getAllContacts()
     suspend fun getCallById(id: Long): CallEntity? = callDao.getCallById(id)
+    fun observeCallById(id: Long): Flow<CallEntity?> = callDao.observeCallById(id)
     suspend fun insertCall(call: CallEntity): Long = callDao.insert(call)
     suspend fun updateCall(call: CallEntity) = callDao.update(call)
     suspend fun deleteCall(id: Long) = callDao.deleteById(id)
@@ -65,4 +67,10 @@ class CallRepository @Inject constructor(
     // Processing errors
     suspend fun setProcessingError(callId: Long, error: String) = callDao.setProcessingError(callId, error)
     suspend fun clearProcessingError(callId: Long) = callDao.clearProcessingError(callId)
+
+    // Processing stage (targeted column updates so they never clobber other fields)
+    suspend fun setProcessingStage(callId: Long, stage: ProcessingStage?) =
+        callDao.setProcessingStage(callId, stage?.name)
+    suspend fun markTranscribed(callId: Long) = callDao.setTranscribed(callId, true)
+    suspend fun markAnalyzed(callId: Long) = callDao.setAnalyzed(callId, true)
 }

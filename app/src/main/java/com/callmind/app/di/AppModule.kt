@@ -25,7 +25,7 @@ object AppModule {
             context,
             CallMindDatabase::class.java,
             "callmind.db"
-        ).addMigrations(CallMindDatabase.MIGRATION_2_3)
+        ).addMigrations(CallMindDatabase.MIGRATION_2_3, CallMindDatabase.MIGRATION_3_4)
             .fallbackToDestructiveMigration(false)
             .build()
     }

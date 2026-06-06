@@ -22,7 +22,7 @@ import com.callmind.app.data.local.db.entity.TranscriptEntity
         ActionItemEntity::class,
         EmbeddingEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class CallMindDatabase : RoomDatabase() {
@@ -35,6 +35,12 @@ abstract class CallMindDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE calls ADD COLUMN processingError TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE calls ADD COLUMN processingStage TEXT DEFAULT NULL")
             }
         }
     }

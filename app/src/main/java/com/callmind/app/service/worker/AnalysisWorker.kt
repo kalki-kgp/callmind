@@ -1,14 +1,10 @@
 package com.callmind.app.service.worker
 
 import android.content.Context
-import android.content.pm.ServiceInfo
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import androidx.core.app.NotificationCompat
-import com.callmind.app.R
 import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.remote.GeminiApiService
 import com.callmind.app.data.remote.ConfigException
@@ -20,7 +16,9 @@ import com.callmind.app.data.remote.model.Part
 import com.callmind.app.data.remote.model.extractText
 import com.callmind.app.data.local.db.entity.ActionItemEntity
 import com.callmind.app.data.local.db.entity.CallAnalysisEntity
+import com.callmind.app.data.local.db.entity.ProcessingStage
 import com.callmind.app.data.repository.CallRepository
+import com.callmind.app.util.NotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -35,7 +33,8 @@ class AnalysisWorker @AssistedInject constructor(
     private val callRepository: CallRepository,
     private val geminiApiService: GeminiApiService,
     private val openAiCompatibleService: OpenAiCompatibleService,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val notificationHelper: NotificationHelper
 ) : CoroutineWorker(context, params) {
 
     private val json = Json { encodeDefaults = true }
@@ -49,8 +48,10 @@ class AnalysisWorker @AssistedInject constructor(
 
         if (transcript.fullText.isBlank()) return Result.failure()
 
+        val contactLabel = call.contactName ?: call.phoneNumber
+        callRepository.setProcessingStage(callId, ProcessingStage.ANALYZING)
         try {
-            setForeground(createForegroundInfo("Analyzing: ${call.contactName ?: call.phoneNumber}"))
+            setForeground(notificationHelper.processingForegroundInfo(contactLabel, ProcessingStage.ANALYZING))
         } catch (_: Exception) { }
 
         return try {
@@ -107,10 +108,11 @@ class AnalysisWorker @AssistedInject constructor(
                 callRepository.insertActionItems(actionEntities)
             }
 
-            callRepository.updateCall(call.copy(isAnalyzed = true))
+            callRepository.markAnalyzed(callId)
 
-            // Show completion notification
-            showCompletionNotification(call.contactName ?: call.phoneNumber, parsed.summary)
+            // Results are now viewable; surface the completion toast while the
+            // pipeline continues into the (background) indexing step.
+            notificationHelper.showCompletion(callId, contactLabel, parsed.summary)
 
             Result.success()
         } catch (e: Exception) {
@@ -120,6 +122,7 @@ class AnalysisWorker @AssistedInject constructor(
                 val provider = try { userPreferences.llmProvider.first() } catch (_: Exception) { "unknown" }
                 val errorMsg = e.message?.take(200) ?: "Analysis failed"
                 callRepository.setProcessingError(callId, "LLM ($provider): $errorMsg")
+                callRepository.setProcessingStage(callId, ProcessingStage.FAILED)
                 Result.failure()
             } else {
                 Result.retry()
@@ -153,41 +156,7 @@ $transcript
         """.trimIndent()
     }
 
-    private fun createForegroundInfo(text: String): ForegroundInfo {
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("CallMind — Analyzing")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setOngoing(true)
-            .build()
-
-        return ForegroundInfo(
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        )
-    }
-
-    private fun showCompletionNotification(contact: String, summary: String) {
-        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE)
-                as android.app.NotificationManager
-
-        val notification = NotificationCompat.Builder(applicationContext, "processing_complete")
-            .setContentTitle("Call analyzed: $contact")
-            .setContentText(summary.take(100))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
-            .setSmallIcon(R.drawable.ic_notification)
-            .setAutoCancel(true)
-            .build()
-
-        manager.notify(callId.hashCode() + 1000, notification)
-    }
-
-    private val callId: Long get() = inputData.getLong("call_id", -1)
-
     companion object {
         private const val TAG = "AnalysisWorker"
-        private const val CHANNEL_ID = "analysis"
-        private const val NOTIFICATION_ID = 3
     }
 }

@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.callmind.app.data.local.db.entity.CallEntity
+import com.callmind.app.data.local.db.entity.ProcessingStage
 import com.callmind.app.data.local.preferences.UserPreferences
 import com.callmind.app.data.repository.CallRepository
 import com.callmind.app.service.PipelineOrchestrator
@@ -37,7 +38,8 @@ data class CallUiItem(
     val summary: String?,
     val isProcessing: Boolean = false,
     val isUnprocessed: Boolean = false,
-    val processingError: String? = null
+    val processingError: String? = null,
+    val processingStage: ProcessingStage? = null
 )
 
 data class HomeUiState(
@@ -71,8 +73,18 @@ class HomeViewModel @Inject constructor(
                 val hasRecording = call.recordingFilePath != null
                 val hasError = call.processingError != null
                 val isAnalyzed = call.isAnalyzed
-                val isBeingProcessed = call.id in processingIds
-                        || (call.isTranscribed && !isAnalyzed && !hasError)
+                val storedStage = ProcessingStage.fromName(call.processingStage)
+
+                // Stage column is the source of truth; fall back to the older
+                // flag heuristic for calls processed before the column existed.
+                val activeStage: ProcessingStage? = when {
+                    hasError -> null
+                    storedStage != null && storedStage.isActive -> storedStage
+                    call.id in processingIds -> ProcessingStage.QUEUED
+                    call.isTranscribed && !isAnalyzed -> ProcessingStage.ANALYZING
+                    else -> null
+                }
+                val isBeingProcessed = activeStage != null
 
                 CallUiItem(
                     id = call.id,
@@ -82,9 +94,10 @@ class HomeViewModel @Inject constructor(
                     timestamp = call.timestamp,
                     durationSeconds = call.durationSeconds,
                     summary = analysis?.summary,
-                    isProcessing = hasRecording && isBeingProcessed && !hasError,
+                    isProcessing = hasRecording && isBeingProcessed,
                     isUnprocessed = hasRecording && !isAnalyzed && !isBeingProcessed && !hasError,
-                    processingError = call.processingError
+                    processingError = call.processingError,
+                    processingStage = if (hasRecording) activeStage else null
                 )
             },
             isLoading = false,
@@ -110,15 +123,23 @@ class HomeViewModel @Inject constructor(
 
     fun processCall(callId: Long) {
         _processingIds.update { it + callId }
+        viewModelScope.launch {
+            // Instant optimistic feedback before the first worker starts.
+            callRepository.clearProcessingError(callId)
+            callRepository.setProcessingStage(callId, ProcessingStage.QUEUED)
+        }
         pipelineOrchestrator.processCall(callId)
 
-        // Remove from processing set once the call is analyzed or errored.
-        // first { } is a terminal operator so the DB flow collector completes
-        // instead of leaking one collector per "Process" tap.
+        // Remove from the optimistic set once the pipeline reaches a terminal
+        // state. first { } is a terminal operator so the DB flow collector
+        // completes instead of leaking one collector per "Process" tap.
         viewModelScope.launch {
             callRepository.getAllCalls().first { calls ->
-                val call = calls.find { it.id == callId }
-                call != null && (call.isAnalyzed || call.processingError != null)
+                val call = calls.find { it.id == callId } ?: return@first false
+                val stage = ProcessingStage.fromName(call.processingStage)
+                call.processingError != null ||
+                        stage == ProcessingStage.COMPLETED ||
+                        (stage == null && call.isAnalyzed)
             }
             _processingIds.update { it - callId }
         }
